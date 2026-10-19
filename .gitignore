@@ -55,3 +55,4 @@ __pycache__/
 
 # black-box suite logs and scratch clusters (key artifacts are copied to docs/pgx/local-dev/validation/)
 tests/results/
+dist/pgx.dev/.wrangler/

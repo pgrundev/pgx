@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PGX — Postgres for agents</title>
+<meta name="description" content="One runtime. Thousands of Postgres databases. PGX is a self-contained Postgres-compatible runtime for disposable development, test and CI databases.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* Layout: single centered column; a dark terminal card anchors the hero; mono for commands + data, grotesque for prose. */
+  :root {
+    --bg: #f5f7f9;
+    --surface: #ffffff;
+    --fg: #182230;
+    --muted: #596573;
+    --border: #e4e8ec;
+    --accent: #1f6feb;
+    --accent-strong: #15538f;
+    --term-bg: #0d1117;
+    --term-fg: #e6edf3;
+    --term-dim: #8b98a6;
+    --term-green: #4ac08a;
+    --term-blue: #6cb6ff;
+    --font-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0d11;
+      --surface: #12171d;
+      --fg: #e7edf3;
+      --muted: #94a2b1;
+      --border: #222b34;
+      --accent: #4b9fe6;
+      --accent-strong: #8cc6ff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0d11;
+    --surface: #12171d;
+    --fg: #e7edf3;
+    --muted: #94a2b1;
+    --border: #222b34;
+    --accent: #4b9fe6;
+    --accent-strong: #8cc6ff;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 920px;
+    margin: 0 auto;
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 .7rem;
+  }
+
+  /* ---- Hero ---- */
+  .hero { padding-block: clamp(3.5rem, 9vw, 6rem) 2.5rem; text-align: center; }
+  .tag-beta {
+    display: inline-flex; align-items: center; gap: .5ch;
+    font-family: var(--font-mono); font-size: .74rem; letter-spacing: .04em;
+    color: var(--accent-strong);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: .3rem .8rem; margin-bottom: 1.6rem; background: var(--surface);
+  }
+  .tag-beta .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--term-green); }
+  h1 {
+    font-size: clamp(2.2rem, 6.5vw, 3.5rem);
+    line-height: 1.05; font-weight: 800; letter-spacing: -.02em;
+    text-wrap: balance; margin: 0 0 .9rem;
+  }
+  .tagline {
+    font-size: clamp(1.1rem, 3vw, 1.4rem);
+    color: var(--muted); font-weight: 500; text-wrap: balance;
+    margin: 0 auto 2.2rem; max-width: 34ch;
+  }
+
+  /* ---- Terminal ---- */
+  .term {
+    background: var(--term-bg); color: var(--term-fg);
+    border-radius: 14px; text-align: left;
+    box-shadow: 0 18px 50px -20px rgba(8, 14, 22, .5);
+    overflow: hidden; max-width: 640px; margin: 0 auto;
+    border: 1px solid #1c2530;
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: .9rem;
+    padding: .7rem 1rem; border-bottom: 1px solid #1c2530;
+  }
+  .term-dots { display: flex; gap: .45rem; }
+  .term-dots i { width: 11px; height: 11px; border-radius: 50%; display: block; background: #39424d; }
+  .term-title { font-family: var(--font-mono); font-size: .74rem; color: var(--term-dim); }
+  .copy {
+    margin-left: auto; display: inline-flex; align-items: center; gap: .5ch;
+    font-family: var(--font-mono); font-size: .74rem; color: var(--term-fg);
+    background: #1b2531; border: 1px solid #2b3744; border-radius: 7px;
+    padding: .32rem .7rem; cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .copy:hover { background: #22303d; }
+  .copy.ok { color: var(--term-green); border-color: #2f5a46; }
+  .term-body { margin: 0; padding: 1.1rem 1.2rem 1.3rem; overflow-x: auto; }
+  .term-body code {
+    font-family: var(--font-mono); font-size: .92rem; line-height: 1.85;
+    display: block; white-space: pre; min-width: 0;
+  }
+  .term-body .ln { display: block; }
+  .term-body .pr { color: var(--term-green); }
+  .term-body .cm { color: var(--term-blue); }
+  .term-body .dim { color: var(--term-dim); }
+
+  .benefits {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: .6rem 1.4rem;
+    font-family: var(--font-mono); font-size: .82rem; color: var(--muted);
+    margin: 1.8rem auto 0;
+  }
+  .benefits span { white-space: nowrap; }
+  .benefits span::before { content: "— "; color: var(--accent); }
+
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: .7rem; margin-top: 2rem; }
+  .btn {
+    display: inline-flex; align-items: center; gap: .5ch;
+    font-weight: 600; font-size: .95rem; padding: .62rem 1.15rem;
+    border-radius: 9px; border: 1px solid var(--border); color: var(--fg);
+    background: var(--surface); transition: border-color .15s, transform .05s;
+  }
+  .btn:hover { text-decoration: none; border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+
+  /* ---- Sections ---- */
+  section { padding-block: 2.6rem; border-top: 1px solid var(--border); }
+  section h2 { font-size: clamp(1.35rem, 3.6vw, 1.7rem); font-weight: 700; letter-spacing: -.01em; margin: 0 0 1rem; text-wrap: balance; }
+  section p { color: var(--fg); max-width: 65ch; }
+  section p.lead { color: var(--muted); }
+
+  .model {
+    display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.4rem;
+    font-family: var(--font-mono); font-size: .9rem;
+  }
+  .model .row {
+    flex: 1 1 260px; min-width: 0; border: 1px solid var(--border);
+    border-radius: 11px; padding: 1rem 1.1rem; background: var(--surface);
+  }
+  .model .row .k { color: var(--muted); font-size: .76rem; letter-spacing: .04em; text-transform: uppercase; display: block; margin-bottom: .4rem; }
+  .model .row.bad .v { color: var(--muted); }
+  .model .row.good .v { color: var(--accent-strong); }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; margin-top: .4rem; }
+  @media (max-width: 620px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 380px) { .stats { grid-template-columns: 1fr; } }
+  .stat { border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.15rem; background: var(--surface); min-width: 0; }
+  .stat .n { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--fg); }
+  .stat .d { color: var(--muted); font-size: .88rem; margin-top: .3rem; }
+  .note { color: var(--muted); font-size: .86rem; margin-top: 1.1rem; }
+
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin-top: .4rem; counter-reset: step; }
+  @media (max-width: 720px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 380px) { .steps { grid-template-columns: 1fr; } }
+  .step { border: 1px solid var(--border); border-radius: 12px; padding: 1.05rem 1.1rem; background: var(--surface); min-width: 0; }
+  .step .num { counter-increment: step; font-family: var(--font-mono); font-size: .78rem; color: var(--accent); font-weight: 700; }
+  .step .num::before { content: counter(step, decimal-leading-zero); }
+  .step h3 { font-size: 1rem; margin: .45rem 0 .3rem; font-weight: 700; }
+  .step p { font-size: .9rem; color: var(--muted); margin: 0; }
+
+  .callout {
+    margin-top: 1.4rem; border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 1.05rem 1.2rem; background: var(--surface);
+  }
+  .callout strong { display: block; margin-bottom: .25rem; }
+  .callout p { margin: 0; color: var(--muted); font-size: .94rem; }
+
+  footer { border-top: 1px solid var(--border); padding-block: 2.4rem 3rem; text-align: center; }
+  footer .meta { font-family: var(--font-mono); font-size: .82rem; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem .9rem; }
+  footer .links { margin-top: 1rem; display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 1.4rem; font-size: .9rem; }
+  footer .tagfoot { margin-top: 1.4rem; color: var(--muted); font-size: .86rem; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+  <div class="page">
+
+    <header class="hero">
+      <span class="tag-beta"><span class="dot"></span>Public beta · v0.1.0-beta.1</span>
+      <h1>PGX. Postgres for agents. 🐘</h1>
+      <p class="tagline">One runtime. Thousands of Postgres databases.</p>
+
+      <div class="term" aria-label="Install and run PGX">
+        <div class="term-bar">
+          <span class="term-dots"><i></i><i></i><i></i></span>
+          <span class="term-title">bash</span>
+          <button class="copy" id="copyBtn" type="button" aria-label="Copy commands">
+            <span class="label">Copy</span>
+          </button>
+        </div>
+        <pre class="term-body"><code id="cmds"><span class="ln"><span class="pr">$</span> curl -fsSL https://pgx.dev/install | sh</span><span class="ln"><span class="pr">$</span> pgx run</span><span class="ln"><span class="pr">$</span> pgx clone app agent-001 --ttl 5m</span></code></pre>
+      </div>
+
+      <div class="benefits">
+        <span>No Docker required</span>
+        <span>Native Mac &amp; Linux</span>
+        <span>Automatic cleanup</span>
+      </div>
+
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/pgrundev/pgx">GitHub</a>
+        <a class="btn" href="https://github.com/pgrundev/pgx/tree/main/docs/pgx/local-dev">Installation docs</a>
+        <a class="btn" href="https://github.com/pgrundev/pgx/releases/tag/v0.1.0-beta.1">Release notes</a>
+      </div>
+    </header>
+
+    <section id="why">
+      <p class="eyebrow">Why PGX</p>
+      <h2>A database cheap enough to allocate like an object.</h2>
+      <p class="lead">Agents, test suites, CI jobs and preview environments create databases constantly and throw them away minutes later. Giving each one its own PostgreSQL server costs a process, tens of megabytes and a cold start. PGX runs a single process that holds many isolated databases — immutable state is shared, so each database pays mainly for what makes it different.</p>
+      <div class="model">
+        <div class="row bad"><span class="k">The usual way</span><span class="v">1 database → 1 PostgreSQL server</span></div>
+        <div class="row good"><span class="k">With PGX</span><span class="v">1 runtime → thousands of databases</span></div>
+      </div>
+    </section>
+
+    <section id="benchmarks">
+      <p class="eyebrow">Benchmarks</p>
+      <h2>Built to create, use, and discard — fast.</h2>
+      <div class="stats">
+        <div class="stat"><div class="n">~6.2 ms</div><div class="d">warm database mint, p50</div></div>
+        <div class="stat"><div class="n">~70 KB</div><div class="d">memory per idle database</div></div>
+        <div class="stat"><div class="n">1,000</div><div class="d">isolated databases on one small VM</div></div>
+        <div class="stat"><div class="n">~674 ms</div><div class="d">copy-on-write branch of a 10 GB template</div></div>
+        <div class="stat"><div class="n">~13.6 MB</div><div class="d">initial storage for that branch</div></div>
+        <div class="stat"><div class="n">0</div><div class="d">result differences across 219/231 byte-exact regression tests</div></div>
+      </div>
+      <p class="note">Measured on a 4 vCPU / 8 GB VPS with ZFS block cloning; the load generator shared the CPUs, so these describe the architecture, not a capacity limit. Every figure has a committed script and raw result — see the <a href="https://github.com/pgrundev/pgx/tree/main/benchmarks/pgx/linux">benchmark suite</a>.</p>
+    </section>
+
+    <section id="how">
+      <p class="eyebrow">How it works</p>
+      <h2>Sealed template in, disposable database out.</h2>
+      <div class="steps">
+        <div class="step"><div class="num"></div><h3>Seal a template</h3><p>Build a database once and seal it as an immutable template.</p></div>
+        <div class="step"><div class="num"></div><h3>Mint a database</h3><p>Branch it in milliseconds — copy-on-write where the backend supports it.</p></div>
+        <div class="step"><div class="num"></div><h3>Use it</h3><p>An agent, CI job or test suite runs against a real Postgres database.</p></div>
+        <div class="step"><div class="num"></div><h3>Discard</h3><p>A TTL or grace period drops it automatically. Permanent databases stay.</p></div>
+      </div>
+      <p class="lead" style="margin-top:1.4rem">PGX speaks the PostgreSQL wire protocol and SQL dialect, so Rails, Django, Prisma, SQLAlchemy and node-postgres run their full migrate → test → schema-change lifecycles on it unchanged.</p>
+      <div class="callout">
+        <strong>Beta — for disposable databases.</strong>
+        <p>PGX is in public beta and built for disposable development, test and CI databases. It is not intended to be the production primary store for your data.</p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="meta">
+        <span>Open source</span><span>·</span><span>Free</span><span>·</span><span>Beta</span><span>·</span><span>Built for disposable development databases</span>
+      </div>
+      <div class="links">
+        <a href="https://github.com/pgrundev/pgx">GitHub</a>
+        <a href="https://github.com/pgrundev/pgx/tree/main/docs/pgx/local-dev">Install</a>
+        <a href="https://github.com/pgrundev/pgx/releases">Releases</a>
+        <a href="https://github.com/pgrundev/pgx/blob/main/LICENSE">License (AGPL-3.0)</a>
+      </div>
+      <div class="tagfoot">PGX is the database engine behind PGRun branches.</div>
+    </footer>
+
+  </div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('copyBtn');
+    if (!btn) return;
+    var cmds = "curl -fsSL https://pgx.dev/install | sh\npgx run\npgx clone app agent-001 --ttl 5m\n";
+    var label = btn.querySelector('.label');
+    function flash() {
+      var prev = label.textContent;
+      label.textContent = 'Copied';
+      btn.classList.add('ok');
+      setTimeout(function () { label.textContent = prev; btn.classList.remove('ok'); }, 1600);
+    }
+    function fallback() {
+      try {
+        var node = document.getElementById('cmds');
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('copy');
+        sel.removeAllRanges();
+      } catch (e) { /* clipboard unavailable; selection left for manual copy */ }
+      flash();
+    }
+    btn.addEventListener('click', function () {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(cmds).then(flash, fallback);
+        } else { fallback(); }
+      } catch (e) { fallback(); }
+    });
+  })();
+</script>
+</body>
+</html>

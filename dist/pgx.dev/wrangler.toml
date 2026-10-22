@@ -15,6 +15,6 @@ routes = [
 
 # Pinned release ref the installer is served from. There is no fallback in the
 # Worker: INSTALL_REF must be a release tag or commit sha, never a branch.
-# Override per-deploy with:  wrangler deploy --var INSTALL_REF:v0.1.0-beta.1
+# Override per-deploy with:  wrangler deploy --var INSTALL_REF:v0.1.0
 [vars]
-INSTALL_REF = "v0.1.0-beta.1"
+INSTALL_REF = "v0.1.0"

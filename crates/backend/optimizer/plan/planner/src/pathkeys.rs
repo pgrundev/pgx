@@ -1013,21 +1013,21 @@ pub fn trim_mergeclauses_for_inner_pathkeys<'mcx>(
     new_mergeclauses
 }
 
-// build_join_pathkeys (pathkeys.c); FULL/RIGHT/RIGHT_ANTI (NIL result) are
-// loud upstream of add_paths_to_joinrel.
-pub fn build_join_pathkeys<'mcx>(
-    run: &mut PlannerRun<'mcx>,
+// build_join_pathkeys (pathkeys.c) as the kept outer_pathkeys prefix length, so callers borrow a slice.
+// FULL/RIGHT/RIGHT_ANTI (NIL result) are loud upstream of add_paths_to_joinrel.
+pub fn build_join_pathkeys_len(
+    run: &mut PlannerRun<'_>,
     joinrel: types_pathnodes::RelId,
     jointype: u32,
     outer_pathkeys: &[PathKey],
-) -> PgResult<PgVec<'mcx, PathKey>> {
+) -> PgResult<usize> {
     if matches!(
         jointype,
         types_pathnodes::JOIN_FULL | types_pathnodes::JOIN_RIGHT | types_pathnodes::JOIN_RIGHT_ANTI
     ) {
-        return Ok(PgVec::new_in(run.mcx));
+        return Ok(0);
     }
-    truncate_useless_pathkeys(run, joinrel, outer_pathkeys)
+    useful_pathkeys_len(run, joinrel, outer_pathkeys)
 }
 
 pub fn truncate_useless_pathkeys<'mcx>(
@@ -1035,14 +1035,24 @@ pub fn truncate_useless_pathkeys<'mcx>(
     rel: types_pathnodes::RelId,
     pathkeys: &[PathKey],
 ) -> PgResult<PgVec<'mcx, PathKey>> {
+    let nuseful = useful_pathkeys_len(run, rel, pathkeys)?;
+    let mut out: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
+    out.extend(pathkeys[..nuseful].iter().copied());
+    Ok(out)
+}
+
+// truncate_useless_pathkeys' count of leading pathkeys worth keeping.
+fn useful_pathkeys_len(
+    run: &mut PlannerRun<'_>,
+    rel: types_pathnodes::RelId,
+    pathkeys: &[PathKey],
+) -> PgResult<usize> {
     let mut nuseful = pathkeys_useful_for_merging(run, rel, pathkeys)?;
     nuseful = nuseful.max(pathkeys_useful_for_ordering(run, pathkeys));
     nuseful = nuseful.max(pathkeys_useful_for_grouping(run, pathkeys));
     nuseful = nuseful.max(pathkeys_useful_for_distinct(run, pathkeys));
     nuseful = nuseful.max(pathkeys_useful_for_setop(run, pathkeys));
-    let mut out: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
-    out.extend(pathkeys.iter().take(nuseful).copied());
-    Ok(out)
+    Ok(nuseful.min(pathkeys.len()))
 }
 
 fn pathkeys_useful_for_merging(

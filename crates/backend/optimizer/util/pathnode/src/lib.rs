@@ -906,24 +906,28 @@ pub fn calc_non_nestloop_required_outer<'mcx>(
     outer_path: PathId,
     inner_path: PathId,
 ) -> Relids<'mcx> {
-    use types_pathnodes::relids::{relids_copy, relids_is_empty, relids_overlap, relids_union};
-    let outer_paramrels = relids_copy(mcx, path_req_outer(run.root.path(outer_path).base()));
-    let inner_paramrels = relids_copy(mcx, path_req_outer(run.root.path(inner_path).base()));
+    use types_pathnodes::relids::{relids_is_empty, relids_overlap, relids_union};
+    let outer_paramrels = path_req_outer(run.root.path(outer_path).base());
+    let inner_paramrels = path_req_outer(run.root.path(inner_path).base());
     // Input parameterizations refer to topmost parents until
     // reparameterize_path_by_child runs, so the disallowed-parameterization
     // tests use topmost-parent relids.
     let top_or_self = |r: types_pathnodes::RelId| {
         if relids_is_empty(&run.root.rel(r).top_parent_relids) {
-            relids_copy(mcx, &run.root.rel(r).relids)
+            &run.root.rel(r).relids
         } else {
-            relids_copy(mcx, &run.root.rel(r).top_parent_relids)
+            &run.root.rel(r).top_parent_relids
         }
     };
-    let outerrelids = top_or_self(run.root.path(outer_path).base().parent);
-    let innerrelids = top_or_self(run.root.path(inner_path).base().parent);
-    debug_assert!(!relids_overlap(&outer_paramrels, &innerrelids));
-    debug_assert!(!relids_overlap(&inner_paramrels, &outerrelids));
-    relids_union(mcx, &outer_paramrels, &inner_paramrels)
+    debug_assert!(!relids_overlap(
+        outer_paramrels,
+        top_or_self(run.root.path(inner_path).base().parent)
+    ));
+    debug_assert!(!relids_overlap(
+        inner_paramrels,
+        top_or_self(run.root.path(outer_path).base().parent)
+    ));
+    relids_union(mcx, outer_paramrels, inner_paramrels)
 }
 
 // join_clause_is_movable_into (restrictinfo.c). The body lives in
@@ -3733,32 +3737,32 @@ pub fn create_nestloop_path<'mcx>(
     required_outer: &Relids<'mcx>,
     semifactors: Option<SemiAntiJoinFactors>,
 ) -> PgResult<PathId> {
-    use types_pathnodes::relids::{relids_copy, relids_is_empty, relids_is_member, relids_overlap};
+    use types_pathnodes::relids::{relids_is_empty, relids_is_member, relids_overlap};
     let mcx = run.mcx;
 
     // Clauses already enforced inside the parameterized inner path (matched by
     // rinfo_serial) are removed from the join's own restrict list now: the
     // list feeds this path's size and cost estimates.
-    let mut restrict_vec: PgVec<'mcx, RinfoId> = PgVec::new_in(mcx);
-    restrict_vec.extend(restrict_clauses.iter().copied());
-    let inner_req_outer = relids_copy(mcx, path_req_outer(run.root.path(inner_path).base()));
-    let outerrelids = {
-        let r = run.root.path(outer_path).base().parent;
-        if relids_is_empty(&run.root.rel(r).top_parent_relids) {
-            relids_copy(mcx, &run.root.rel(r).relids)
+    let inner_enforces_joinquals = {
+        let outer_rel = run.root.rel(run.root.path(outer_path).base().parent);
+        let outerrelids = if relids_is_empty(&outer_rel.top_parent_relids) {
+            &outer_rel.relids
         } else {
-            relids_copy(mcx, &run.root.rel(r).top_parent_relids)
-        }
+            &outer_rel.top_parent_relids
+        };
+        relids_overlap(path_req_outer(run.root.path(inner_path).base()), outerrelids)
     };
-    if relids_overlap(&inner_req_outer, &outerrelids) {
+    let mut restrict_vec: PgVec<'mcx, RinfoId> =
+        PgVec::with_capacity_in(restrict_clauses.len(), mcx);
+    if inner_enforces_joinquals {
         let enforced_serials = get_param_path_clause_serials(run, inner_path);
-        let mut jclauses: PgVec<'mcx, RinfoId> = PgVec::new_in(mcx);
-        for &rid in restrict_vec.iter() {
+        for &rid in restrict_clauses {
             if !relids_is_member(run.root.rinfo(rid).rinfo_serial, &enforced_serials) {
-                jclauses.push(rid);
+                restrict_vec.push(rid);
             }
         }
-        restrict_vec = jclauses;
+    } else {
+        restrict_vec.extend_from_slice(restrict_clauses);
     }
 
     let param_info = get_joinrel_parampathinfo(
@@ -3884,7 +3888,7 @@ pub fn create_hashjoin_path<'mcx>(
 }
 
 
-// create_mergejoin_path (pathnode.c).
+// create_mergejoin_path (pathnode.c); copies the borrowed lists so precheck-rejected candidates allocate nothing.
 #[allow(clippy::too_many_arguments)]
 pub fn create_mergejoin_path<'mcx>(
     run: &mut PlannerRun<'mcx>,
@@ -3896,11 +3900,11 @@ pub fn create_mergejoin_path<'mcx>(
     outer_path: PathId,
     inner_path: PathId,
     restrict_clauses: &[RinfoId],
-    pathkeys: PgVec<'mcx, PathKey>,
+    pathkeys: &[PathKey],
     required_outer: &Relids<'mcx>,
-    mergeclauses: PgVec<'mcx, RinfoId>,
-    outersortkeys: PgVec<'mcx, PathKey>,
-    innersortkeys: PgVec<'mcx, PathKey>,
+    mergeclauses: &[RinfoId],
+    outersortkeys: &[PathKey],
+    innersortkeys: &[PathKey],
     outer_presorted_keys: usize,
 ) -> PgResult<PathId> {
     let mcx = run.mcx;
@@ -3937,7 +3941,7 @@ pub fn create_mergejoin_path<'mcx>(
         disabled_nodes: 0,
         startup_cost: 0.0,
         total_cost: 0.0,
-        pathkeys,
+        pathkeys: mcx::slice_in(mcx, pathkeys)?,
     };
     let mut node = MergePath {
         jpath: JoinPath {
@@ -3948,9 +3952,9 @@ pub fn create_mergejoin_path<'mcx>(
             innerjoinpath: Some(inner_path),
             joinrestrictinfo,
         },
-        path_mergeclauses: mergeclauses,
-        outersortkeys,
-        innersortkeys,
+        path_mergeclauses: mcx::slice_in(mcx, mergeclauses)?,
+        outersortkeys: mcx::slice_in(mcx, outersortkeys)?,
+        innersortkeys: mcx::slice_in(mcx, innersortkeys)?,
         outer_presorted_keys: outer_presorted_keys as i32,
         skip_mark_restore: false,
         materialize_inner: false,

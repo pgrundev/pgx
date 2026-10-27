@@ -11,7 +11,7 @@ MIN=${PGX_MIN_VERSION:-0.1.2}
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 path=$(command -v pgx 2>/dev/null || true)
 if [ -z "$path" ]; then
-  printf '{"ok":false,"reason":"missing","min":"%s","hint":"install PGX: npm i -g pgxdb (Node 18+) or curl -fsSL https://pgx.dev/install | sh"}\n' "$MIN"; exit 3
+  printf '{"ok":false,"reason":"missing","min":"%s","hint":"install PGX: npm i -g pgxdb@%s (Node 18+), or run the installer from https://pgx.dev/install in your own shell"}\n' "$MIN" "$MIN"; exit 3
 fi
 out=$(pgx --json version 2>/dev/null || true)
 ver=$(printf '%s' "$out" | sed -nE 's/.*"pgx_version":"([0-9]+\.[0-9]+\.[0-9]+)[^"]*".*/\1/p' | head -1)
@@ -36,4 +36,4 @@ if vcmp "$ver" "0.1.1"; then
 else
   why="PGX $ver has no pgx agent"
 fi
-printf '{"ok":false,"reason":"too_old","version":"%s","path":"%s","min":"%s","hint":"%s; upgrade to %s or newer with the method it was installed with (npm i -g pgxdb@latest, or the installer again)"}\n' "$ver" "$(esc "$path")" "$MIN" "$why" "$MIN"; exit 2
+printf '{"ok":false,"reason":"too_old","version":"%s","path":"%s","min":"%s","hint":"%s; upgrade to %s or newer with the method it was installed with (npm i -g pgxdb@%s, or the installer again)"}\n' "$ver" "$(esc "$path")" "$MIN" "$why" "$MIN" "$MIN"; exit 2

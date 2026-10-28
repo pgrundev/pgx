@@ -88,8 +88,8 @@ function missingAssetMessage(target, version, url, status) {
   let msg = `download failed: ${url}: HTTP ${status}`;
   if (target === 'darwin-amd64' && status === 404) {
     msg +=
-      `\n  macOS on Intel is not supported yet: no PGX ${version} binary is published for darwin-amd64.` +
-      '\n  PGX runs on Apple silicon Macs and on Linux (arm64, x86-64).';
+      `\n  PGX ${version} predates macOS on Intel: no binary is published for darwin-amd64.` +
+      '\n  Intel Macs are supported from the first release after 0.1.2; install `pgxdb@latest`.';
   }
   return msg;
 }

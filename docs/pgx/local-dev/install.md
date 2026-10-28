@@ -22,8 +22,8 @@ runs start in well under a second.
 `pgxdb@X.Y.Z` installs PGX `X.Y.Z`, so `@latest` is the latest PGX release.
 `PGX_VERSION`, `PGX_INSTALL_DIR` and `PGX_BASE_URL` override the version,
 cache directory and download base. `npm install -g pgxdb` provides both
-`pgxdb` and `pgx` on your PATH. Node.js 18+ is required. Supported: Apple
-silicon Macs and Linux (arm64, x86-64); Intel Macs and Windows are not
+`pgxdb` and `pgx` on your PATH. Node.js 18+ is required. Supported: macOS
+(Apple silicon and Intel) and Linux (arm64, x86-64); Windows is not
 supported (see the platform table below).
 
 ## One-line install (shell)
@@ -93,5 +93,5 @@ See the repository README "Quickstart → Build": the Rust toolchain (pinned by
 | macOS arm64 (Apple silicon) | supported, verified |
 | Linux arm64 | supported, verified |
 | Linux x86-64 | supported, built and smoke-tested in CI |
-| macOS x86-64 (Intel) | **not supported yet**: no binary is published. `npx pgxdb` and the shell installer both refuse with a clear message. The release workflow has an experimental, non-blocking Intel build leg whose artifact is kept out of releases until it has been validated |
+| macOS x86-64 (Intel) | supported from the first release after v0.1.2, built and smoke-tested in CI; verified on macOS 15.8 (Core i5-8279U): lifecycle, databases and clone suites and `smoke_packaged.sh` pass. Releases up to v0.1.2 publish no Intel binary |
 | Windows | not supported |

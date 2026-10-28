@@ -41,12 +41,8 @@ jobs:
           - { os: ubuntu-24.04,     target: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
           - { os: macos-14,         target: darwin-arm64 }
-          # Experimental: Intel macOS. Not yet validated; continue-on-error so a
-          # failure here never blocks the release of the three supported targets.
-          # Remove `experimental` once an artifact has passed smoke_packaged.sh.
-          - { os: macos-15-intel,   target: darwin-amd64, experimental: true }
+          - { os: macos-15-intel,   target: darwin-amd64 }
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental || false }}
     steps:
       - uses: actions/checkout@v4
       - name: Determine version
@@ -104,10 +100,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
-      - name: Drop the experimental darwin-amd64 build (actions artifact only, never a release asset)
-        # macOS on Intel is not supported until that artifact has been validated;
-        # publishing it would make `npx pgxdb` / install.sh pick it up blindly.
-        run: rm -rf artifacts/pgx-darwin-amd64
       - name: Collect checksums
         run: |
           cd artifacts && find . -name '*.sha256' -exec cat {} \; > ../checksums.txt

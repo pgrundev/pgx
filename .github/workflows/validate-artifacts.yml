@@ -28,6 +28,7 @@ jobs:
           - { os: ubuntu-24.04,     target: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
           - { os: macos-14,         target: darwin-arm64 }
+          - { os: macos-15-intel,   target: darwin-amd64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/pgx-static-re2
-          key: static-re2-macos-arm64-absl20260817.0-re2-2025-11-05-v1
+          key: static-re2-macos-${{ runner.arch }}-absl20260817.0-re2-2025-11-05-v1
       - name: Build static re2+abseil prefix (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -122,20 +123,26 @@ jobs:
           runuser -u pgxtester -- sh dist/test/smoke_packaged.sh "$DIST"
 
   smoke-macos:
-    name: smoke darwin-arm64 (no Homebrew re2/abseil loaded)
+    name: smoke ${{ matrix.target }} (no Homebrew re2/abseil loaded)
     needs: build
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14,       target: darwin-arm64, arch: arm64 }
+          - { os: macos-15-intel, target: darwin-amd64, arch: x86_64 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { name: pgx-darwin-arm64, path: dl }
+        with: { name: "pgx-${{ matrix.target }}", path: dl }
       - name: Verify checksum, architecture, extract
         run: |
           cd dl
           shasum -a 256 -c ./*.tar.gz.sha256
           tar -xzf ./*.tar.gz
           d="$(find . -maxdepth 1 -type d -name 'pgx-*')"
-          file "$d/bin/postgres" | grep -qi 'Mach-O 64-bit executable arm64'
+          file "$d/bin/postgres" | grep -qi 'Mach-O 64-bit executable ${{ matrix.arch }}'
           echo "DIST=$PWD/$d" >> "$GITHUB_ENV"
       - name: Self-contained + smoke (asserts 0 Homebrew dylibs loaded)
         run: |

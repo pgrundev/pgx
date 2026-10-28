@@ -359,7 +359,8 @@ npx pgxdb stop
 
 The binary is downloaded once (SHA-256 verified) into `~/.pgx/dist/<version>`
 and reused. `npm install -g pgxdb` puts `pgx` on your PATH for good. Supported:
-Apple silicon Macs and Linux (arm64, x86-64). Intel Macs are not supported yet.
+macOS (Apple silicon and Intel) and Linux (arm64, x86-64). Intel Macs are
+supported from the first release after v0.1.2.
 
 Without Node, the shell installer does the same install:
 

@@ -45,8 +45,8 @@ for the user to run themselves and stop.
 
 ## Platforms
 
-macOS arm64 (Apple silicon), Linux amd64, Linux arm64. Not supported: Intel
-macOS, Windows (WSL2 counts as Linux). Do not claim otherwise; on an
+macOS arm64 (Apple silicon), macOS amd64 (Intel; releases after v0.1.2
+only), Linux amd64, Linux arm64. Not supported: Windows (WSL2 counts as Linux). Do not claim otherwise; on an
 unsupported platform explain and stop.
 
 Docker is not needed. PGX is a single runtime process started by `pgx start`

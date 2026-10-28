@@ -126,6 +126,7 @@ Or download the tarball for your platform below, verify its SHA-256 against
 | Linux x86-64 | `pgx-<version>-linux-amd64.tar.gz` |
 | Linux arm64  | `pgx-<version>-linux-arm64.tar.gz` |
 | macOS arm64  | `pgx-<version>-darwin-arm64.tar.gz` |
+| macOS x86-64 | `pgx-<version>-darwin-amd64.tar.gz` |
 
 XML functions and ICU collations use the host's libxml2 and ICU when present.
 

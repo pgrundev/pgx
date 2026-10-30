@@ -3411,8 +3411,8 @@ pub fn final_cost_nestloop(
         ntuples = outer_path_rows * inner_path_rows;
     }
 
-    let quals = types_pathnodes::relids::pgvec_clone_shallow(run.mcx, &path.jpath.joinrestrictinfo);
-    let restrict_qual_cost = crate::cost_qual_eval(run, &quals)?;
+    // `path` is not yet in the arena, so its lists can be passed while `run` is borrowed mutably.
+    let restrict_qual_cost = crate::cost_qual_eval(run, &path.jpath.joinrestrictinfo)?;
     startup_cost += restrict_qual_cost.startup;
     let cpu_per_tuple = gucs::cpu_tuple_cost() + restrict_qual_cost.per_tuple;
     // mul_add mirrors the C referee's fmadd (GCC fp-contract fuses
@@ -3597,8 +3597,7 @@ pub fn final_cost_hashjoin(
     #[allow(unused_assignments)] // Rust-structural: C declares uninitialized (costsize.c:4294); the by-value seam made this initializer dead
     let mut innerbucketsize = 1.0f64;
     let mut innermcvfreq = 1.0f64;
-    let inner_relids = run.root.rel(inner_parent).relids.clone();
-    let hcls = types_pathnodes::relids::pgvec_clone_shallow(run.mcx, &path.path_hashclauses);
+    let hcls: &[RinfoId] = &path.path_hashclauses;
     let otherclauses = if inner_is_unique_path {
         innerbucketsize = 1.0 / virtualbuckets;
         innermcvfreq = 0.0;
@@ -3607,7 +3606,7 @@ pub fn final_cost_hashjoin(
         let (other, bs) = planner_seams::estimate_multivariate_bucketsize::call(
             run,
             inner_parent,
-            &hcls,
+            hcls,
         )?;
         innerbucketsize = bs;
         other
@@ -3615,7 +3614,8 @@ pub fn final_cost_hashjoin(
     for &hcl in otherclauses.iter() {
         let right_is_inner = {
             let r = run.root.rinfo(hcl);
-            types_pathnodes::relids::relids_is_subset(&r.right_relids, &inner_relids)
+            let inner_relids = &run.root.rel(inner_parent).relids;
+            types_pathnodes::relids::relids_is_subset(&r.right_relids, inner_relids)
         };
         let (thisbucketsize, thismcvfreq) = if right_is_inner {
             let cached = run.root.rinfo(hcl).right_bucketsize;
@@ -3662,10 +3662,8 @@ pub fn final_cost_hashjoin(
         startup_cost += DISABLE_COST;
     }
 
-    let hash_qual_cost = crate::cost_qual_eval(run, &hcls)?;
-    let joinrestrict =
-        types_pathnodes::relids::pgvec_clone_shallow(run.mcx, &path.jpath.joinrestrictinfo);
-    let qp_qual_cost = crate::cost_qual_eval(run, &joinrestrict)?;
+    let hash_qual_cost = crate::cost_qual_eval(run, hcls)?;
+    let qp_qual_cost = crate::cost_qual_eval(run, &path.jpath.joinrestrictinfo)?;
     let qp_startup = qp_qual_cost.startup - hash_qual_cost.startup;
     let qp_per_tuple = qp_qual_cost.per_tuple - hash_qual_cost.per_tuple;
 
@@ -4054,12 +4052,8 @@ pub fn final_cost_mergejoin(
         path.jpath.path.rows = clamp_row_est(path.jpath.path.rows / parallel_divisor);
     }
 
-    let mergeclauses =
-        types_pathnodes::relids::pgvec_clone_shallow(run.mcx, &path.path_mergeclauses);
-    let restrictinfos =
-        types_pathnodes::relids::pgvec_clone_shallow(run.mcx, &path.jpath.joinrestrictinfo);
-    let merge_qual_cost = crate::cost_qual_eval(run, &mergeclauses)?;
-    let mut qp_qual_cost = crate::cost_qual_eval(run, &restrictinfos)?;
+    let merge_qual_cost = crate::cost_qual_eval(run, &path.path_mergeclauses)?;
+    let mut qp_qual_cost = crate::cost_qual_eval(run, &path.jpath.joinrestrictinfo)?;
     qp_qual_cost.startup -= merge_qual_cost.startup;
     qp_qual_cost.per_tuple -= merge_qual_cost.per_tuple;
 
@@ -4070,7 +4064,7 @@ pub fn final_cost_mergejoin(
     path.skip_mark_restore =
         early_stop && path.jpath.joinrestrictinfo.len() == path.path_mergeclauses.len();
 
-    let mergejointuples = approx_tuple_count(run, outer_path, inner_path, &mergeclauses)?;
+    let mergejointuples = approx_tuple_count(run, outer_path, inner_path, &path.path_mergeclauses)?;
 
     let outer_is_unique_path = matches!(
         run.root.path(outer_path),

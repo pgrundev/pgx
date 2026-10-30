@@ -19,9 +19,9 @@ use types_tuple::NameData;
 use types_error::{
     PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED,
     ERRCODE_FOREIGN_KEY_VIOLATION, ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_OBJECT_DEFINITION,
-    ERRCODE_RESTRICT_VIOLATION, ERROR,
+    ERRCODE_RESTRICT_VIOLATION, ERRCODE_T_R_SERIALIZATION_FAILURE, ERROR,
 };
-use types_rel::{Relation, RowShareLock, RELKIND_PARTITIONED_TABLE};
+use types_rel::{AccessShareLock, NoLock, Relation, RowShareLock, RELKIND_PARTITIONED_TABLE};
 use types_trigger::{
     Trigger, TRIGGER_FIRED_AFTER, TRIGGER_FIRED_BY_DELETE, TRIGGER_FIRED_BY_INSERT,
     TRIGGER_FIRED_BY_UPDATE, TRIGGER_FIRED_FOR_ROW,
@@ -93,6 +93,26 @@ struct RiConstraintInfo {
     period_contained_by_oper: Oid,
     agged_period_contained_by_oper: Oid,
     period_intersect_oper: Oid,
+    conindid: Oid,
+    fastpath_state: RiFastPathState,
+    fpmeta: Option<FastPathMeta>,
+}
+
+// RI_FastPathState (ri_triggers.c): eligibility checks that need the PK index open.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RiFastPathState {
+    Unknown,
+    Usable,
+    Unusable,
+}
+
+// FastPathMeta (ri_triggers.c): per-key scan-key metadata for the direct PK index probe.
+#[derive(Clone, Copy)]
+struct FastPathMeta {
+    regops: [Oid; RI_MAX_NUMKEYS],
+    subtypes: [Oid; RI_MAX_NUMKEYS],
+    strats: [u16; RI_MAX_NUMKEYS],
+    index_attnos: [i16; RI_MAX_NUMKEYS],
 }
 
 fn cache_mcx() -> &'static MemoryContext {
@@ -407,6 +427,14 @@ fn RI_FKey_check<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -> PgRe
             }
         },
         _ => {}
+    }
+
+    // Direct PK index probe instead of the SPI query; false means a check made under the PK lock requires SPI.
+    if ri_fastpath_is_applicable(&riinfo, &pk_rel)
+        && ri_FastPathCheck(mcx, &riinfo, fk_rel, &pk_rel, newtup)?
+    {
+        // Keep RowShareLock to commit, as the SPI query's range-table lock would.
+        return pk_rel.close(NoLock);
     }
 
     spi::SPI_connect()?;
@@ -1448,6 +1476,9 @@ fn ri_LoadConstraintInfo(constraint_oid: Oid) -> PgResult<RiConstraintInfo> {
         period_contained_by_oper: InvalidOid,
         agged_period_contained_by_oper: InvalidOid,
         period_intersect_oper: InvalidOid,
+        conindid: req(Anum_conindid)?.as_oid(),
+        fastpath_state: RiFastPathState::Unknown,
+        fpmeta: None,
     };
 
     // DeconstructFkConstraintRow (pg_constraint.c): 1-D no-null int2[]/oid[].
@@ -1720,6 +1751,398 @@ fn ri_ExtractValues(
         vals[i] = unsafe { types_tuple::heap_getattr(tup, attnums[i] as i32, &rel.rd_att, &mut isnull) };
         nulls[i] = isnull;
     }
+}
+
+// ri_fastpath_is_applicable (ri_triggers.c): the per-row checks that need no index or catalog access.
+fn ri_fastpath_is_applicable(riinfo: &RiConstraintInfo, pk_rel: &Relation<'_>) -> bool {
+    // Partitioned PKs need partition routing and temporal FKs need range_agg(): both stay on SPI.
+    if pk_rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE || riinfo.hasperiod {
+        return false;
+    }
+    riinfo.fastpath_state != RiFastPathState::Unusable
+}
+
+// Write fast-path state onto the cached entry; a missing entry was invalidated and gets rebuilt.
+fn ri_cache_update(constraint_id: Oid, f: impl FnOnce(&mut RiConstraintInfo)) {
+    RI_CONSTRAINT_CACHE.with(|c| {
+        if let Some(e) = c.borrow_mut().as_mut().and_then(|m| m.get_mut(&constraint_id)) {
+            f(e);
+        }
+    });
+}
+
+// ri_FastPathCheck (ri_triggers.c): probe the PK unique index and lock the row without SPI.
+// Returns false when the index or the FK types require the SPI path; reports violations itself.
+fn ri_FastPathCheck<'mcx>(
+    mcx: Mcx<'mcx>,
+    riinfo: &RiConstraintInfo,
+    fk_rel: &Relation<'mcx>,
+    pk_rel: &Relation<'mcx>,
+    newtup: &HeapTupleData<'_>,
+) -> PgResult<bool> {
+    // ExecCheckXactReadOnly refuses the SPI query's row lock; pgx's executor names the command "SELECT".
+    if xact::XactReadOnly() && !namespace_seams::is_temp_namespace::call(pk_rel.rd_rel.relnamespace) {
+        xact::PreventCommandIfReadOnly("SELECT")?;
+    }
+
+    // SPI increments the command counter before the query, so earlier triggers' effects are seen;
+    // doing it under the PK lock also processes local invalidations before the reload below.
+    xact::CommandCounterIncrement()?;
+    let constraint_id = riinfo.constraint_id;
+    let conindid = ri_LoadConstraintInfo(constraint_id)?.conindid;
+    let idx_rel = indexam::index_open(mcx, conindid, AccessShareLock)?;
+    // Opening the index can have processed further invalidations.
+    let mut riinfo = ri_LoadConstraintInfo(constraint_id)?;
+    if !ri_check_fastpath_index(&mut riinfo, fk_rel, pk_rel, &idx_rel)? {
+        indexam::index_close(idx_rel, NoLock)?;
+        return Ok(false);
+    }
+
+    // Snapshot only after the PK lock is held, as SPI takes it, so a key committed while we waited
+    // is visible; active too, since STABLE equality functions read the active snapshot.
+    let snapshot = snapmgr::RegisterSnapshot(Some(&snapmgr::GetTransactionSnapshot()?))?
+        .expect("registered a snapshot");
+    snapmgr::PushActiveSnapshot(&snapshot)?;
+    let mut slot = tableam::table_slot_create(mcx, pk_rel)?;
+
+    let (_, save_sec_context) = miscinit::GetUserIdAndSecContext();
+    let guard = miscinit::SecContextGuard::set(
+        pk_rel.rd_rel.relowner,
+        save_sec_context | SECURITY_LOCAL_USERID_CHANGE | SECURITY_NOFORCE_RLS,
+    );
+    let found = (|| -> PgResult<bool> {
+        ri_CheckPermissions(mcx, &riinfo, pk_rel)?;
+        let mut scan =
+            indexam::index_beginscan(mcx, pk_rel, &idx_rel, snapshot.clone(), riinfo.nkeys as i32, 0)?;
+        let fpmeta = match riinfo.fpmeta {
+            Some(m) => m,
+            None => ri_populate_fastpath_metadata(&riinfo, &idx_rel)?,
+        };
+        ri_CheckFunctionPermissions(mcx, &riinfo, &fpmeta)?;
+        let mut pk_vals = [Datum::null(); RI_MAX_NUMKEYS];
+        let mut pk_nulls = [false; RI_MAX_NUMKEYS];
+        ri_ExtractValues(fk_rel, newtup, &riinfo, false, &mut pk_vals, &mut pk_nulls);
+        let mut skeys = build_index_scankeys(&riinfo, &fpmeta, &idx_rel, &pk_vals)?;
+        let found =
+            ri_FastPathProbeOne(mcx, pk_rel, &idx_rel, &mut scan, &mut slot, &snapshot, &mut skeys)?;
+        indexam::index_endscan(scan)?;
+        Ok(found)
+    })();
+    guard.restore();
+    exectuples::exec_clear_tuple(&mut slot, mcx);
+    snapmgr::UnregisterSnapshot(Some(&snapshot));
+    snapmgr::PopActiveSnapshot()?;
+
+    if !found? {
+        return Err(ri_ReportViolation(
+            mcx,
+            &riinfo,
+            pk_rel,
+            fk_rel,
+            newtup,
+            None,
+            RI_PLAN_CHECK_LOOKUPPK,
+            false,
+            false,
+        ));
+    }
+    indexam::index_close(idx_rel, NoLock)?;
+    Ok(true)
+}
+
+// ri_FastPathProbeOne (ri_triggers.c): true when a matching PK row was found and KEY SHARE locked.
+fn ri_FastPathProbeOne<'mcx>(
+    mcx: Mcx<'mcx>,
+    pk_rel: &Relation<'mcx>,
+    idx_rel: &Relation<'mcx>,
+    scan: &mut indexam::IndexScanDescData<'mcx>,
+    slot: &mut types_slot::SlotData<'mcx>,
+    snapshot: &snapmgr::Snapshot,
+    skeys: &mut [types_scan::ScanKeyData],
+) -> PgResult<bool> {
+    indexam::index_rescan(scan, Some(skeys), None)?;
+    if !indexam::index_getnext_slot(mcx, scan, types_scan::ScanDirection::ForwardScanDirection, slot)? {
+        return Ok(false);
+    }
+    match ri_LockPKTuple(mcx, pk_rel, slot, snapshot)? {
+        None => Ok(false),
+        Some(false) => Ok(true),
+        Some(true) => recheck_matched_pk_tuple(mcx, idx_rel, skeys, slot),
+    }
+}
+
+// ri_LockPKTuple (ri_triggers.c): ExecLockRows' table_tuple_lock handling for one PK row.
+// None when the row is gone; Some(traversed) when locked, traversed meaning an update chain was followed.
+fn ri_LockPKTuple<'mcx>(
+    mcx: Mcx<'mcx>,
+    pk_rel: &Relation<'mcx>,
+    slot: &mut types_slot::SlotData<'mcx>,
+    snapshot: &snapmgr::Snapshot,
+) -> PgResult<Option<bool>> {
+    use tableam::{LockTupleMode, LockWaitPolicy, TM_FailureData, TM_Result};
+    let uses_xact_snapshot = xact::IsolationUsesXactSnapshot();
+    let mut lockflags = tableam::TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS;
+    if !uses_xact_snapshot {
+        lockflags |= tableam::TUPLE_LOCK_FLAG_FIND_LAST_VERSION;
+    }
+    let tid = slot.base().tts_tid;
+    let snap: tableam::Snapshot<'mcx> = Some(snapshot.clone());
+    let mut tmfd = TM_FailureData::default();
+    // Lock as of the scan snapshot's command id, as ExecLockRows uses es_output_cid: a later id
+    // (advanced by user code in the scan) would see this command's own update as TM_Invisible.
+    let result = tableam::table_tuple_lock(
+        mcx,
+        pk_rel,
+        &tid,
+        &snap,
+        slot,
+        snapshot.curcid.get(),
+        LockTupleMode::LockTupleKeyShare,
+        LockWaitPolicy::LockWaitBlock,
+        lockflags,
+        &mut tmfd,
+    )?;
+    match result {
+        TM_Result::TM_Ok => Ok(Some(tmfd.traversed)),
+        // ExecLockRows reports both concurrent updates and deletes with the "update" text.
+        TM_Result::TM_Deleted | TM_Result::TM_Updated if uses_xact_snapshot => Err(Box::new(
+            PgError::error("could not serialize access due to concurrent update".to_string())
+                .with_sqlstate(ERRCODE_T_R_SERIALIZATION_FAILURE),
+        )),
+        TM_Result::TM_Deleted => Ok(None),
+        TM_Result::TM_Updated => Err(Box::new(PgError::error(format!(
+            "unexpected table_tuple_lock status: {}",
+            result as u32
+        )))),
+        // Updated or deleted by this or a later command of this transaction: skipped like ExecLockRows.
+        TM_Result::TM_SelfModified => Ok(None),
+        TM_Result::TM_Invisible => {
+            Err(Box::new(PgError::error("attempted to lock invisible tuple".to_string())))
+        }
+        other => Err(Box::new(PgError::error(format!(
+            "unrecognized table_tuple_lock status: {}",
+            other as u32
+        )))),
+    }
+}
+
+// ri_check_fastpath_index (ri_triggers.c): index- and type-dependent eligibility, cached on the
+// entry. Checked under the PK lock with the index open, so REINDEX CONCURRENTLY cannot race it.
+fn ri_check_fastpath_index(
+    riinfo: &mut RiConstraintInfo,
+    fk_rel: &Relation<'_>,
+    pk_rel: &Relation<'_>,
+    idx_rel: &Relation<'_>,
+) -> PgResult<bool> {
+    if riinfo.fastpath_state != RiFastPathState::Unknown {
+        return Ok(riinfo.fastpath_state == RiFastPathState::Usable);
+    }
+    let state = if ri_fastpath_index_usable(riinfo, fk_rel, pk_rel, idx_rel)? {
+        RiFastPathState::Usable
+    } else {
+        RiFastPathState::Unusable
+    };
+    riinfo.fastpath_state = state;
+    ri_cache_update(riinfo.constraint_id, |e| e.fastpath_state = state);
+    Ok(state == RiFastPathState::Usable)
+}
+
+fn ri_fastpath_index_usable(
+    riinfo: &RiConstraintInfo,
+    fk_rel: &Relation<'_>,
+    pk_rel: &Relation<'_>,
+    idx_rel: &Relation<'_>,
+) -> PgResult<bool> {
+    // Any amcanunique AM can back a FK; the direct probe is written for btree only.
+    if idx_rel.rd_rel.relam != types_core::BTREE_AM_OID {
+        return Ok(false);
+    }
+    let index = idx_rel.rd_index.as_ref().expect("index relation has rd_index");
+    let nkeyatts = index.indnkeyatts as usize;
+    // Leave index collations differing from the referenced column's to SPI.
+    for i in 0..nkeyatts {
+        let attnum = index.indkey[i];
+        if attnum <= 0 || idx_rel.rd_indcollation[i] != att_collation(pk_rel, attnum) {
+            return Ok(false);
+        }
+    }
+    // The stored PK = FK operator must still be the opfamily's equality member.
+    for i in 0..riinfo.nkeys {
+        let Some(idx_col) = index.indkey[..nkeyatts].iter().position(|&a| a == riinfo.pk_attnums[i])
+        else {
+            return Ok(false);
+        };
+        if lsyscache::get_op_opfamily_strategy(riinfo.pf_eq_oprs[i], idx_rel.rd_opfamily[idx_col])?
+            != types_scan::BTEqualStrategyNumber as i32
+        {
+            return Ok(false);
+        }
+    }
+    // FK values go to the operator unconverted; anything needing a cast function stays on SPI.
+    for i in 0..riinfo.nkeys {
+        let fk_type = att_type(fk_rel, riinfo.fk_attnums[i]);
+        let (_, righttype) = lsyscache::op_input_types(riinfo.pf_eq_oprs[i])?;
+        if !coerce::IsBinaryCoercible(fk_type, righttype)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+// ri_CheckPermissions (ri_triggers.c): ExecCheckPermissions for the SPI path's
+// SELECT ... FOR KEY SHARE, run as the PK table's owner.
+fn ri_CheckPermissions(mcx: Mcx<'_>, riinfo: &RiConstraintInfo, pk_rel: &Relation<'_>) -> PgResult<()> {
+    use types_nodes::parsenodes::{ObjectType, ACL_SELECT, ACL_SELECT_FOR_UPDATE, ACL_UPDATE, ACL_USAGE};
+    const ACLCHECK_NO_PRIV: i32 = 1;
+    let userid = miscinit::GetUserId();
+    let nspid = pk_rel.rd_rel.relnamespace;
+    let aclresult = aclchk_seams::object_aclcheck::call(
+        types_core::NAMESPACE_RELATION_ID,
+        nspid,
+        userid,
+        ACL_USAGE,
+    )?;
+    if aclresult != ACLCHECK_OK {
+        let nspname = lsyscache::get_namespace_name(mcx, nspid)?;
+        aclchk_seams::aclcheck_error::call(
+            aclresult,
+            ObjectType::OBJECT_SCHEMA as i32,
+            nspname.as_ref().map_or("", |n| n.as_str()),
+        )?;
+    }
+
+    // ExecCheckOneRelPerms: SELECT on the key columns, UPDATE on any column for the row lock.
+    let relid = pk_rel.rd_id;
+    let required = ACL_SELECT | ACL_SELECT_FOR_UPDATE;
+    let remaining = required & !aclchk_seams::pg_class_aclmask::call(relid, userid, required, true)?;
+    let mut ok = true;
+    if remaining & ACL_SELECT != 0 {
+        for i in 0..riinfo.nkeys {
+            if aclchk_seams::pg_attribute_aclcheck::call(relid, riinfo.pk_attnums[i], userid, ACL_SELECT)?
+                != ACLCHECK_OK
+            {
+                ok = false;
+                break;
+            }
+        }
+    }
+    if ok && remaining & ACL_UPDATE != 0 {
+        ok = aclchk_seams::pg_attribute_aclcheck_all::call(relid, userid, ACL_UPDATE, false)?
+            == ACLCHECK_OK;
+    }
+    if !ok {
+        aclchk_seams::aclcheck_error::call(ACLCHECK_NO_PRIV, ObjectType::OBJECT_TABLE as i32, pk_rel.name())?;
+    }
+    Ok(())
+}
+
+// recheck_matched_pk_tuple (ri_triggers.c): after following an update chain, the locked version
+// must still carry the searched key; a key update means the referenced value is gone.
+fn recheck_matched_pk_tuple<'mcx>(
+    mcx: Mcx<'mcx>,
+    idx_rel: &Relation<'_>,
+    skeys: &mut [types_scan::ScanKeyData],
+    slot: &mut types_slot::SlotData<'mcx>,
+) -> PgResult<bool> {
+    let index = idx_rel.rd_index.as_ref().expect("index relation has rd_index");
+    for (i, skey) in skeys.iter_mut().enumerate() {
+        let mut isnull = false;
+        let value = exectuples::slot_getattr(slot, index.indkey[i] as i32, &mut isnull);
+        // A nullable unique column may hold NULL in the newer version: never equal.
+        if isnull {
+            return Ok(false);
+        }
+        let mut fcinfo = types_fmgr::LocalFcinfo::<2>::fresh(skey.sk_collation);
+        // SAFETY: mcx outlives this call.
+        unsafe { fcinfo.set_result_mcx(mcx) };
+        fcinfo.set_arg(0, value);
+        fcinfo.set_arg(1, skey.sk_argument);
+        if !skey.sk_func.invoke(&mut fcinfo)?.as_bool() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+// ri_CheckFunctionPermissions (ri_triggers.c): the EXECUTE check ExecInitFunc makes on the SPI
+// query's equality operator; no cast function is involved on the fast path.
+fn ri_CheckFunctionPermissions(
+    mcx: Mcx<'_>,
+    riinfo: &RiConstraintInfo,
+    fpmeta: &FastPathMeta,
+) -> PgResult<()> {
+    use types_nodes::parsenodes::{ObjectType, ACL_EXECUTE};
+    for &funcid in &fpmeta.regops[..riinfo.nkeys] {
+        let aclresult = aclchk_seams::object_aclcheck::call(
+            types_core::PROCEDURE_RELATION_ID,
+            funcid,
+            miscinit::GetUserId(),
+            ACL_EXECUTE,
+        )?;
+        if aclresult != ACLCHECK_OK {
+            let name = lsyscache::get_func_name(mcx, funcid)?;
+            aclchk_seams::aclcheck_error::call(
+                aclresult,
+                ObjectType::OBJECT_FUNCTION as i32,
+                name.as_ref().map_or("", |n| n.as_str()),
+            )?;
+        }
+        objectaccess::InvokeFunctionExecuteHook(funcid)?;
+    }
+    Ok(())
+}
+
+// build_index_scankeys (ri_triggers.c): ExecIndexBuildScanKeys-style equality keys, each placed at
+// its index column's position because btree wants keys in attribute order.
+fn build_index_scankeys(
+    riinfo: &RiConstraintInfo,
+    fpmeta: &FastPathMeta,
+    idx_rel: &Relation<'_>,
+    pk_vals: &[Datum],
+) -> PgResult<Vec<types_scan::ScanKeyData>> {
+    let mut skeys: Vec<_> = (0..riinfo.nkeys).map(|_| types_scan::ScanKeyData::empty()).collect();
+    for i in 0..riinfo.nkeys {
+        let pos = fpmeta.index_attnos[i] as usize - 1;
+        let key: &mut types_scan::ScanKeyData = &mut skeys[pos];
+        key.sk_attno = fpmeta.index_attnos[i];
+        key.sk_strategy = fpmeta.strats[i];
+        key.sk_subtype = fpmeta.subtypes[i];
+        key.sk_collation = idx_rel.rd_indcollation[pos];
+        fmgr_core::fmgr_info_into(fpmeta.regops[i], &mut key.sk_func)?;
+        key.sk_argument = pk_vals[i];
+    }
+    Ok(skeys)
+}
+
+// ri_populate_fastpath_metadata (ri_triggers.c): look up the per-key operator procedure and
+// strategy/subtype once and cache them on the constraint entry.
+fn ri_populate_fastpath_metadata(
+    riinfo: &RiConstraintInfo,
+    idx_rel: &Relation<'_>,
+) -> PgResult<FastPathMeta> {
+    let index = idx_rel.rd_index.as_ref().expect("index relation has rd_index");
+    let mut fpmeta = FastPathMeta {
+        regops: [InvalidOid; RI_MAX_NUMKEYS],
+        subtypes: [InvalidOid; RI_MAX_NUMKEYS],
+        strats: [0; RI_MAX_NUMKEYS],
+        index_attnos: [0; RI_MAX_NUMKEYS],
+    };
+    for i in 0..riinfo.nkeys {
+        let eq_opr = riinfo.pf_eq_oprs[i];
+        // FK columns need not be listed in index order.
+        let idx_col = index.indkey[..riinfo.nkeys]
+            .iter()
+            .position(|&a| a == riinfo.pk_attnums[i])
+            .expect("referenced column is an index key");
+        fpmeta.index_attnos[i] = idx_col as i16 + 1;
+        fpmeta.regops[i] = lsyscache::get_opcode(eq_opr)?;
+        let (strat, _, subtype) =
+            lsyscache::get_op_opfamily_properties(eq_opr, idx_rel.rd_opfamily[idx_col], false)?;
+        fpmeta.strats[i] = strat as u16;
+        fpmeta.subtypes[i] = subtype;
+    }
+    ri_cache_update(riinfo.constraint_id, |e| e.fpmeta = Some(fpmeta));
+    Ok(fpmeta)
 }
 
 // C errtableconstraint(rel, conname): the schema/table/constraint

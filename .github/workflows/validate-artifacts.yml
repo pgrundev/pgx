@@ -27,7 +27,7 @@ jobs:
         include:
           - { os: ubuntu-24.04,     target: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-14,         target: darwin-arm64 }
+          - { os: macos-15,         target: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +124,7 @@ jobs:
   smoke-macos:
     name: smoke darwin-arm64 (no Homebrew re2/abseil loaded)
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

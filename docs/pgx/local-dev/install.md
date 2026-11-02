@@ -82,7 +82,7 @@ that reaps processes.
 
 ## From source
 
-See the repository README "Quickstart → Build": the Rust toolchain (pinned by
+See [`build-from-source.md`](build-from-source.md): the Rust toolchain (pinned by
 `rust-toolchain.toml`), RE2, and PostgreSQL 18 client tools, then
 `cargo build --release --bin postgres --bin pgx` and `dist/assemble.sh`.
 

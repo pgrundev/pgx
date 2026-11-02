@@ -17,7 +17,7 @@
   <a href="#every-ai-agent-gets-its-own-postgres">Agents</a> ·
   <a href="#why-pgx">Why PGX</a> ·
   <a href="#benchmarks">Benchmarks</a> ·
-  <a href="#how-it-works">How it works</a> ·
+  <a href="#architecture">Architecture</a> ·
   <a href="#status">Status</a> ·
   <a href="#documentation">Docs</a>
 </p>
@@ -127,42 +127,148 @@ script and a committed raw result. The tables, the isolation results and
 how to reproduce them: [`docs/pgx/benchmarks.md`](docs/pgx/benchmarks.md).
 The full report: [`docs/pgx/linux-results.md`](docs/pgx/linux-results.md).
 
-## How it works
+## Architecture
 
 The central idea: **share everything immutable, pay for divergence.** It
 applies to memory and to storage alike.
 
-- **Shared runtime.** Databases are isolated by name, roles and limits
-  inside one process with a thread per connection. A database costs its
-  catalog caches, not a server.
-- **Shared catalog state.** Databases cloned from the same template share
-  identical relation-cache entries. Idle databases are skipped by
-  autovacuum.
-- **Mint-on-connect.** Connecting to `<prefix><template>__<token>` creates
-  that database from a sealed template and connects you to it. A warm pool
-  of pre-created spares serves bursts. A janitor drops databases a grace
-  period after their last session.
-- **Copy-on-write storage.** `file_copy_method = clone` turns database
-  creation into ZFS block clones, so a branch shares every unchanged block
-  with its template and its cost grows with divergence:
+<table>
+<tr>
+<td width="50%" valign="middle">
 
-  ```text
-  template
-  ├── branch A → only changed blocks
-  ├── branch B → only changed blocks
-  └── branch C → only changed blocks
-  ```
-- **Limits at every level.** Session, database and runtime memory limits
-  inside the engine, connection limits per database, and a Linux cgroup
-  around the runtime. Memory-heavy work fails with a PostgreSQL-style
-  error instead of taking the host down:
+### One runtime, thousands of databases
 
-  ```text
-  session → database / runtime → Linux cgroup
-  ```
-- **Machine-readable status.** `pgrust_runtime_status()` returns JSON with
-  databases, sessions, memory against limits, and warm-pool and mint
-  counters.
+One idle PostgreSQL server: 16.6 MB. One idle PGX database: about 70 KB.
+1,000 databases in one PGX process: 128–155 MB while idle, 213 MB after
+every one has been queried once, 283 MB with 100 active.
+
+Databases are isolated by name, roles and limits inside one process with a
+thread per connection. A database costs its catalog caches, not a server:
+databases cloned from the same template share identical relation-cache
+entries, and idle databases are skipped by autovacuum.
+
+[Benchmarks →](docs/pgx/benchmarks.md)
+
+</td>
+<td width="50%">
+  <a href="docs/pgx/benchmarks.md"><picture><source srcset="docs/pgx/img/arch-density.gif" type="image/gif"><img src="docs/pgx/img/arch-density.jpg" alt="1,000 databases in one PGX runtime: 213 MB after each was queried once, 283 MB with 100 active" width="100%" /></picture></a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Mint-on-connect
+
+Connecting to `<prefix><template>__<token>` creates that database from a
+sealed template and connects you to it, in about 6 ms from a warm pool of
+pre-created spares and 74 ms cold. A janitor drops it a grace period after
+its last session ends, unless it is pinned.
+
+[Sealing templates and minting by hand →](docs/pgx/local-dev/build-from-source.md#make-a-template-and-mint-databases)
+
+</td>
+<td width="50%">
+
+```text
+psql -d tdb_tpl_app__agent42      # does not exist yet
+                                  # → minted from tpl_app, 6.2 ms p50
+psql -d tdb_tpl_app__agent43      # a second, isolated one
+                                  # → 0 rows: it sees none of agent42's writes
+   …last session ends…
+                                  # → dropped after the grace period
+```
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Copy-on-write storage
+
+`file_copy_method = clone` turns database creation into ZFS block clones.
+A branch shares every unchanged block with its template, so its cost grows
+with divergence: a branch of a 10 GB template is ready in 674 ms and starts
+at 13.6 MB of its own storage. On a filesystem without block cloning a
+branch is a full copy.
+
+[ZFS copy-on-write →](docs/pgx/zfs-cow.md)
+
+</td>
+<td width="50%">
+
+```text
+template (10 GB)
+├── branch A → only changed blocks      674 ms, +13.6 MB
+├── branch B → only changed blocks
+└── branch C → only changed blocks
+
+ 1 GB template → 135 ms, +2.3 MB
+ 2 GB          → 198 ms, +3.7 MB
+ 5 GB          → 417 ms, +7.0 MB
+10 GB          → 674 ms, +13.6 MB
+```
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Limits at every level
+
+Session, database and runtime memory limits inside the engine, connection
+limits per database, and a Linux cgroup around the runtime. Memory-heavy
+work fails with a PostgreSQL-style error (SQLSTATE 53200) instead of
+taking the host down; the session stays usable and other databases see
+0 errors. `pgrust_runtime_status()` returns the whole picture as JSON:
+databases, sessions, memory against limits, warm-pool and mint counters.
+
+[Memory limits and the cgroup backstop →](docs/pgx/linux-limits.md)
+
+</td>
+<td width="50%">
+
+```text
+session  →  database / runtime  →  Linux cgroup
+
+ERROR:  out of memory                         SQLSTATE 53200
+HINT:   The session reached pgrust.session_memory_limit.
+        (transaction aborted; session stays connected; other databases: 0 errors)
+
+SELECT pgrust_runtime_status();
+{"memory":{"rss_bytes":…,"session_limit_mb":256,"database_limit_mb":512,"runtime_limit_mb":3072},
+ "connections":42,
+ "databases":{"total":1003,"ephemeral":998,"spares":8,"pinned":2},
+ "janitor":{"prefix":"tdb_","pool_size":8,"pending_mints":0}}
+```
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### A branch per agent
+
+The PGX Skill and `pgx agent` put the lifecycle on hooks: each Claude Code
+session gets its own branch with `DATABASE_URL` already set, extended while
+the agent works and dropped after it stops, and every subagent gets a
+branch of its own. Two agents never see each other's changes, and your
+PostgreSQL is only ever read.
+
+[Agents →](docs/pgx/local-dev/agents.md)
+
+</td>
+<td width="50%">
+
+```text
+session start   →  pgx branch myapp <session>   DATABASE_URL set
+  subagent      →  pgx branch myapp <subagent>  its own branch
+  agent works   →  TTL extended
+session end     →  branch dropped
+```
+
+</td>
+</tr>
+</table>
 
 ## Status
 

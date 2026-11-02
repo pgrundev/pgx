@@ -12,6 +12,18 @@
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
 </p>
 
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#why-pgx">Why PGX</a> ·
+  <a href="#benchmarks">Benchmarks</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#every-ai-agent-gets-its-own-postgres">Agents</a> ·
+  <a href="#keep-your-postgres-branch-it-in-pgx-by-hand">Copy &amp; branch</a> ·
+  <a href="#status">Status</a> ·
+  <a href="#documentation">Docs</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
 ```text
 # Claude Code: install inside a session (native plugin, lightweight repository)
 /plugin marketplace add pgrundev/pgx-plugin
@@ -643,3 +655,7 @@ Production PostgreSQL is optimized to live for years. PGX is optimized to
 live for minutes.
 
 **One runtime. Thousands of isolated databases. Postgres for agents.**
+
+<p align="center">
+  <a href="https://star-history.com/#pgrundev/pgx&Date"><img alt="GitHub star history of pgrundev/pgx" src="docs/pgx/img/star-history.png" width="720"></a>
+</p>

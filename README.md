@@ -132,30 +132,37 @@ The full report: [`docs/pgx/linux-results.md`](docs/pgx/linux-results.md).
 The central idea: **share everything immutable, pay for divergence.** It
 applies to memory and to storage alike.
 
-<table>
-<tr>
-<td width="50%" valign="middle">
-
-### One runtime, thousands of databases
+### 1,000 databases, one PGX process
 
 One idle PostgreSQL server: 16.6 MB. One idle PGX database: about 70 KB.
-1,000 databases in one PGX process: 128–155 MB while idle, 213 MB after
-every one has been queried once, 283 MB with 100 active.
-
 Databases are isolated by name, roles and limits inside one process with a
 thread per connection. A database costs its catalog caches, not a server:
 databases cloned from the same template share identical relation-cache
-entries, and idle databases are skipped by autovacuum.
+entries, and idle databases are skipped by autovacuum. Measured on a
+4 vCPU / 8 GB VM:
+
+```text
+one idle PostgreSQL 18 server        16.6 MB
+one idle PGX database               ~70 KB     (~128 KB once it has been queried)
+1,000 idle PGX databases          128–155 MB   in one process
+1,000 databases, each queried once    213 MB
+1,000 databases, 100 active           283 MB
+```
 
 [Benchmarks →](docs/pgx/benchmarks.md)
 
-</td>
-<td width="50%">
-  <a href="docs/pgx/benchmarks.md"><picture><source srcset="docs/pgx/img/arch-density.gif" type="image/gif"><img src="docs/pgx/img/arch-density.jpg" alt="1,000 databases in one PGX runtime: 213 MB after each was queried once, 283 MB with 100 active" width="100%" /></picture></a>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+### 1,000 databases on a MacBook in 46.6 seconds
+
+Not a cluster, not Docker, not the cloud: PGX on a 16 GB M1 Pro, cloning a
+31 MB app database 1,000 times with `pgx clone`. All 1,000 clones in
+46.6 s, 41 ms median per clone, 0 errors, and the engine idles at 20 MB
+RSS with all 1,000 present. Under load it grows with the sessions, not the
+databases: 340 MB at 100 concurrent readers, back to 20 MB when they
+disconnect.
+
+<p align="center">
+  <a href="docs/pgx/benchmarks.md"><picture><source srcset="docs/pgx/img/arch-density.gif" type="image/gif"><img src="docs/pgx/img/arch-density.jpg" alt="1,000 databases in one PGX runtime" width="720" /></picture></a>
+</p>
 
 ### Mint-on-connect
 
@@ -163,11 +170,6 @@ Connecting to `<prefix><template>__<token>` creates that database from a
 sealed template and connects you to it, in about 6 ms from a warm pool of
 pre-created spares and 74 ms cold. A janitor drops it a grace period after
 its last session ends, unless it is pinned.
-
-[Sealing templates and minting by hand →](docs/pgx/local-dev/build-from-source.md#make-a-template-and-mint-databases)
-
-</td>
-<td width="50%">
 
 ```text
 psql -d tdb_tpl_app__agent42      # does not exist yet
@@ -178,10 +180,7 @@ psql -d tdb_tpl_app__agent43      # a second, isolated one
                                   # → dropped after the grace period
 ```
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+[Sealing templates and minting by hand →](docs/pgx/local-dev/build-from-source.md#make-a-template-and-mint-databases)
 
 ### Copy-on-write storage
 
@@ -190,11 +189,6 @@ A branch shares every unchanged block with its template, so its cost grows
 with divergence: a branch of a 10 GB template is ready in 674 ms and starts
 at 13.6 MB of its own storage. On a filesystem without block cloning a
 branch is a full copy.
-
-[ZFS copy-on-write →](docs/pgx/zfs-cow.md)
-
-</td>
-<td width="50%">
 
 ```text
 template (10 GB)
@@ -208,10 +202,7 @@ template (10 GB)
 10 GB          → 674 ms, +13.6 MB
 ```
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+[ZFS copy-on-write →](docs/pgx/zfs-cow.md)
 
 ### Limits at every level
 
@@ -221,11 +212,6 @@ work fails with a PostgreSQL-style error (SQLSTATE 53200) instead of
 taking the host down; the session stays usable and other databases see
 0 errors. `pgrust_runtime_status()` returns the whole picture as JSON:
 databases, sessions, memory against limits, warm-pool and mint counters.
-
-[Memory limits and the cgroup backstop →](docs/pgx/linux-limits.md)
-
-</td>
-<td width="50%">
 
 ```text
 session  →  database / runtime  →  Linux cgroup
@@ -241,10 +227,7 @@ SELECT pgrust_runtime_status();
  "janitor":{"prefix":"tdb_","pool_size":8,"pending_mints":0}}
 ```
 
-</td>
-</tr>
-<tr>
-<td width="50%" valign="middle">
+[Memory limits and the cgroup backstop →](docs/pgx/linux-limits.md)
 
 ### A branch per agent
 
@@ -254,11 +237,6 @@ the agent works and dropped after it stops, and every subagent gets a
 branch of its own. Two agents never see each other's changes, and your
 PostgreSQL is only ever read.
 
-[Agents →](docs/pgx/local-dev/agents.md)
-
-</td>
-<td width="50%">
-
 ```text
 session start   →  pgx branch myapp <session>   DATABASE_URL set
   subagent      →  pgx branch myapp <subagent>  its own branch
@@ -266,9 +244,7 @@ session start   →  pgx branch myapp <session>   DATABASE_URL set
 session end     →  branch dropped
 ```
 
-</td>
-</tr>
-</table>
+[Agents →](docs/pgx/local-dev/agents.md)
 
 ## Status
 

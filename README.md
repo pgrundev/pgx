@@ -428,6 +428,10 @@ levels, transactional DDL, ORMs (Rails, Django, Prisma, SQLAlchemy),
 schema migrations and client compatibility. Every real compatibility bug
 becomes a permanent regression test.
 
+<p align="center">
+  <a href="https://star-history.com/#pgrundev/pgx&Date"><img alt="GitHub star history of pgrundev/pgx" src="docs/pgx/img/star-history.png" width="720"></a>
+</p>
+
 ## Origin
 
 PGX is built on [pgrust](https://github.com/malisper/pgrust), a
@@ -450,7 +454,3 @@ Production PostgreSQL is optimized to live for years. PGX is optimized to
 live for minutes.
 
 **One runtime. Thousands of isolated databases. Postgres for agents.**
-
-<p align="center">
-  <a href="https://star-history.com/#pgrundev/pgx&Date"><img alt="GitHub star history of pgrundev/pgx" src="docs/pgx/img/star-history.png" width="720"></a>
-</p>

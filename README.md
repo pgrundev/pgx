@@ -66,6 +66,10 @@ PGX is the database engine behind PGRun branches.
 
 ## Why PGX
 
+<p align="center">
+  <img alt="PGX architecture: your machine's agents, CI and apps speak the Postgres wire protocol to one PGX process, a shared Rust SQL engine with a thread per connection, shared catalog and caches, and one isolated database per client, each branched copy-on-write from a sealed template" src="docs/pgx/img/architecture.gif" width="900">
+</p>
+
 Agent workflows, test suites, CI jobs and preview environments create
 databases constantly and throw them away minutes or hours later. Giving
 each one its own PostgreSQL server costs a process, tens of megabytes and
@@ -131,10 +135,6 @@ The full report: [`docs/pgx/linux-results.md`](docs/pgx/linux-results.md).
 
 The central idea: **share everything immutable, pay for divergence.** It
 applies to memory and to storage alike.
-
-<p align="center">
-  <img alt="PGX architecture: your machine's agents, CI and apps speak the Postgres wire protocol to one PGX process, a shared Rust SQL engine with a thread per connection, shared catalog and caches, and one isolated database per client, each branched copy-on-write from a sealed template" src="docs/pgx/img/architecture.gif" width="900">
-</p>
 
 One process, one shared SQL engine, and one isolated database per client:
 each agent, CI job or app connects over the ordinary Postgres wire protocol

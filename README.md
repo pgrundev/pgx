@@ -22,6 +22,12 @@
   <a href="#documentation">Docs</a>
 </p>
 
+<p align="center">
+  <strong>Every AI agent gets its own Postgres.</strong><br>
+  Install one Skill. Your coding agent handles the database.<br>
+  No Docker required · Native Mac &amp; Linux · Automatic cleanup
+</p>
+
 ```text
 # Claude Code: install inside a session (native plugin, lightweight repository)
 /plugin marketplace add pgrundev/pgx-plugin
@@ -36,11 +42,6 @@ npx skills add pgrundev/pgx --skill pgx
 npx pgxdb@latest
 ```
 
-<p align="center">
-  <strong>Every AI agent gets its own Postgres.</strong><br>
-  Install one Skill. Your coding agent handles the database.<br>
-  No Docker required · Native Mac &amp; Linux · Automatic cleanup
-</p>
 <!-- skills.sh badge: add [![skills.sh](https://skills.sh/b/pgrundev/pgx)](https://skills.sh/pgrundev/pgx) once https://skills.sh/pgrundev/pgx lists the skill -->
 
 <p align="center">

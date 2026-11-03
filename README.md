@@ -132,6 +132,16 @@ The full report: [`docs/pgx/linux-results.md`](docs/pgx/linux-results.md).
 The central idea: **share everything immutable, pay for divergence.** It
 applies to memory and to storage alike.
 
+<p align="center">
+  <img alt="PGX architecture: your machine's agents, CI and apps speak the Postgres wire protocol to one PGX process, a shared Rust SQL engine with a thread per connection, shared catalog and caches, and one isolated database per client, each branched copy-on-write from a sealed template" src="docs/pgx/img/architecture.gif" width="900">
+</p>
+
+One process, one shared SQL engine, and one isolated database per client:
+each agent, CI job or app connects over the ordinary Postgres wire protocol
+and gets a database branched copy-on-write from a sealed template. The
+engine, catalog, caches and warm pool are shared; only each database's own
+changed blocks are written. Nothing is shared between databases.
+
 ### 1,000 databases, one PGX process
 
 One idle PostgreSQL server: 16.6 MB. One idle PGX database: about 70 KB.

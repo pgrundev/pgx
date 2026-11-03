@@ -40,7 +40,7 @@ jobs:
         include:
           - { os: ubuntu-24.04,     target: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-14,         target: darwin-arm64 }
+          - { os: macos-15,         target: darwin-arm64 }
           # Experimental: Intel macOS. Not yet validated; continue-on-error so a
           # failure here never blocks the release of the three supported targets.
           # Remove `experimental` once an artifact has passed smoke_packaged.sh.

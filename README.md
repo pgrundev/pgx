@@ -101,6 +101,18 @@ and starts at about 14 MB of its own storage. Every agent, every pull
 request and every test run can have its own real Postgres-compatible
 database.
 
+## Disposable by design
+
+Postgres was built to run for years. An AI agent needs a database for two
+minutes: create → migrate → test → destroy. Multiply that by 1,000 agents
+running in parallel and you do not need 1,000 Postgres servers. You need
+one runtime holding thousands of isolated, disposable databases, each
+dropped the moment its agent, pull request or CI job is done.
+
+<p align="center">
+  <picture><source srcset="docs/pgx/img/disposable.gif" type="image/gif"><img src="docs/pgx/img/disposable.jpg" alt="Agents, PRs and CI jobs on one PGX runtime, each creating, migrating, testing and dropping its own database" width="720" /></picture>
+</p>
+
 ## Benchmarks
 
 Measured on a 4 vCPU / 8 GB / $8.50-a-month VPS with ZFS block cloning. The

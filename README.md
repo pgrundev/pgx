@@ -1,7 +1,7 @@
 <h1 align="center">PGX</h1>
 
 <p align="center">
-  <strong>PGX. Postgres for agents. 🐘</strong><br>
+  <strong>Every AI agent gets its own Postgres.</strong><br>
   One runtime. Thousands of Postgres databases.
 </p>
 
@@ -23,8 +23,7 @@
 </p>
 
 <p align="center">
-  <strong>Every AI agent gets its own Postgres.</strong><br>
-  Install one Skill. Your coding agent handles the database.<br>
+  <strong>Install one Skill. Your coding agent handles the database.</strong><br>
   No Docker required · Native Mac &amp; Linux · Automatic cleanup
 </p>
 

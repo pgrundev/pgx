@@ -12,7 +12,7 @@ use types_pathnodes::{
 
 use crate::gucs;
 use crate::pathkeys::{
-    build_join_pathkeys, find_mergeclauses_for_outer_pathkeys,
+    build_join_pathkeys_len, find_mergeclauses_for_outer_pathkeys,
     get_cheapest_path_for_pathkeys, make_inner_pathkeys_for_merge, pathkeys_contained_in,
     pathkeys_count_contained_in, select_outer_pathkeys_for_merge,
     trim_mergeclauses_for_inner_pathkeys, update_mergeclause_eclasses,
@@ -112,41 +112,26 @@ pub fn add_paths_to_joinrel<'mcx>(
     let param_source_rels = {
         use crate::relnode::{relids_difference, relids_overlap, relids_union};
         let mcx = run.mcx;
-        let joinrelids = if run.root.rel(joinrel).reloptkind == types_pathnodes::RELOPT_OTHER_JOINREL
-        {
-            crate::relnode::relids_copy(mcx, &run.root.rel(joinrel).top_parent_relids)
+        let root = &run.root;
+        let joinrelids = if root.rel(joinrel).reloptkind == types_pathnodes::RELOPT_OTHER_JOINREL {
+            &root.rel(joinrel).top_parent_relids
         } else {
-            crate::relnode::relids_copy(mcx, &run.root.rel(joinrel).relids)
+            &root.rel(joinrel).relids
         };
         let mut psr: Relids<'mcx> = crate::relnode::relids_empty();
-        for i in 0..run.root.join_info_list.len() {
-            let (min_l, min_r, jt) = {
-                let sj = &run.root.join_info_list[i];
-                (
-                    crate::relnode::relids_copy(mcx, &sj.min_lefthand),
-                    crate::relnode::relids_copy(mcx, &sj.min_righthand),
-                    sj.jointype,
-                )
-            };
-            if relids_overlap(&joinrelids, &min_r) && !relids_overlap(&joinrelids, &min_l) {
-                psr = relids_union(
-                    mcx,
-                    &psr,
-                    &relids_difference(mcx, &run.root.all_baserels, &min_r),
-                );
+        for sj in root.join_info_list.iter() {
+            let (min_l, min_r) = (&sj.min_lefthand, &sj.min_righthand);
+            if relids_overlap(joinrelids, min_r) && !relids_overlap(joinrelids, min_l) {
+                psr = relids_union(mcx, &psr, &relids_difference(mcx, &root.all_baserels, min_r));
             }
-            if jt == types_pathnodes::JOIN_FULL
-                && relids_overlap(&joinrelids, &min_l)
-                && !relids_overlap(&joinrelids, &min_r)
+            if sj.jointype == types_pathnodes::JOIN_FULL
+                && relids_overlap(joinrelids, min_l)
+                && !relids_overlap(joinrelids, min_r)
             {
-                psr = relids_union(
-                    mcx,
-                    &psr,
-                    &relids_difference(mcx, &run.root.all_baserels, &min_l),
-                );
+                psr = relids_union(mcx, &psr, &relids_difference(mcx, &root.all_baserels, min_l));
             }
         }
-        relids_union(mcx, &psr, &run.root.rel(joinrel).lateral_relids)
+        relids_union(mcx, &psr, &root.rel(joinrel).lateral_relids)
     };
     if mergejoin_allowed {
         sort_inner_and_outer(
@@ -182,16 +167,16 @@ fn compute_semi_anti_join_factors<'mcx>(
     use types_pathnodes::{JOIN_ANTI, JOIN_SEMI};
     let mcx = run.mcx;
     let joinquals: PgVec<'mcx, RinfoId> = if is_outer_join(jointype) {
-        let joinrelids = crate::relnode::relids_copy(mcx, &run.root.rel(joinrel).relids);
-        let mut v = PgVec::new_in(mcx);
+        let joinrelids = &run.root.rel(joinrel).relids;
+        let mut v = PgVec::with_capacity_in(restrictlist.len(), mcx);
         for &rid in restrictlist {
-            if !crate::joinrels::rinfo_is_pushed_down(run, rid, &joinrelids) {
+            if !crate::joinrels::rinfo_is_pushed_down(run, rid, joinrelids) {
                 v.push(rid);
             }
         }
         v
     } else {
-        let mut v = PgVec::new_in(mcx);
+        let mut v = PgVec::with_capacity_in(restrictlist.len(), mcx);
         v.extend(restrictlist.iter().copied());
         v
     };
@@ -235,11 +220,13 @@ fn select_mergejoin_clauses<'mcx>(
     restrictlist: &[RinfoId],
 ) -> PgResult<(PgVec<'mcx, RinfoId>, bool)> {
     let isouterjoin = is_outer_join(jointype);
-    let joinrelids = crate::relnode::relids_copy(run.mcx, &run.root.rel(joinrel).relids);
+    // joinrel relids are re-borrowed per clause: update_mergeclause_eclasses needs `run` mutably.
     let mut have_nonmergeable_joinclause = false;
     let mut result: PgVec<'mcx, RinfoId> = PgVec::new_in(run.mcx);
     for &rid in restrictlist {
-        if isouterjoin && crate::joinrels::rinfo_is_pushed_down(run, rid, &joinrelids) {
+        if isouterjoin
+            && crate::joinrels::rinfo_is_pushed_down(run, rid, &run.root.rel(joinrel).relids)
+        {
             continue;
         }
         {
@@ -348,8 +335,7 @@ fn sort_inner_and_outer<'mcx>(
         let csi = if run.root.path(inner_path).base().parallel_safe {
             Some(inner_path)
         } else if save_jointype != types_pathnodes::JOIN_UNIQUE_INNER {
-            let pl = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(innerrel).pathlist);
-            get_cheapest_parallel_safe_total_inner(run, &pl)
+            get_cheapest_parallel_safe_total_inner(run, &run.root.rel(innerrel).pathlist)
         } else {
             None
         };
@@ -361,7 +347,8 @@ fn sort_inner_and_outer<'mcx>(
     let all_pathkeys = select_outer_pathkeys_for_merge(run, mergeclause_list, joinrel)?;
 
     for i in 0..all_pathkeys.len() {
-        let mut outerkeys: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
+        let mut outerkeys: PgVec<'mcx, PathKey> =
+            PgVec::with_capacity_in(all_pathkeys.len(), run.mcx);
         if i == 0 {
             outerkeys.extend(all_pathkeys.iter().copied());
         } else {
@@ -378,27 +365,17 @@ fn sort_inner_and_outer<'mcx>(
             find_mergeclauses_for_outer_pathkeys(run, &outerkeys, mergeclause_list)?;
         debug_assert_eq!(cur_mergeclauses.len(), mergeclause_list.len());
         let innerkeys = make_inner_pathkeys_for_merge(run, &cur_mergeclauses, &outerkeys)?;
-        let merge_pathkeys = build_join_pathkeys(run, joinrel, jointype, &outerkeys)?;
-        let want_partial = cheapest_partial_outer.is_some() && cheapest_safe_inner.is_some();
-        let (pk2, mc2, ok2, ik2) = if want_partial {
-            (
-                crate::relnode::pgvec_clone_shallow(run.mcx, &merge_pathkeys),
-                crate::relnode::pgvec_clone_shallow(run.mcx, &cur_mergeclauses),
-                crate::relnode::pgvec_clone_shallow(run.mcx, &outerkeys),
-                crate::relnode::pgvec_clone_shallow(run.mcx, &innerkeys),
-            )
-        } else {
-            (PgVec::new_in(run.mcx), PgVec::new_in(run.mcx), PgVec::new_in(run.mcx), PgVec::new_in(run.mcx))
-        };
+        let n = build_join_pathkeys_len(run, joinrel, jointype, &outerkeys)?;
+        let merge_pathkeys = &outerkeys[..n];
         try_mergejoin_path(
             run,
             joinrel,
             outer_path,
             inner_path,
             merge_pathkeys,
-            cur_mergeclauses,
-            outerkeys,
-            innerkeys,
+            &cur_mergeclauses,
+            &outerkeys,
+            &innerkeys,
             jointype,
             inner_unique,
             sjinfo,
@@ -407,16 +384,16 @@ fn sort_inner_and_outer<'mcx>(
             semifactors,
             false,
         )?;
-        if want_partial {
+        if let (Some(cpo), Some(csi)) = (cheapest_partial_outer, cheapest_safe_inner) {
             try_partial_mergejoin_path(
                 run,
                 joinrel,
-                cheapest_partial_outer.unwrap(),
-                cheapest_safe_inner.unwrap(),
-                pk2,
-                mc2,
-                ok2,
-                ik2,
+                cpo,
+                csi,
+                merge_pathkeys,
+                &cur_mergeclauses,
+                &outerkeys,
+                &innerkeys,
                 jointype,
                 inner_unique,
                 sjinfo,
@@ -427,13 +404,14 @@ fn sort_inner_and_outer<'mcx>(
     Ok(())
 }
 
-// generate_mergejoin_paths (joinpath.c).
+// generate_mergejoin_paths (joinpath.c); outer_pathkeys is the caller's copy of outerpath's pathkeys.
 #[allow(clippy::too_many_arguments)]
 fn generate_mergejoin_paths<'mcx>(
     run: &mut PlannerRun<'mcx>,
     joinrel: RelId,
     innerrel: RelId,
     outerpath: PathId,
+    outer_pathkeys: &[PathKey],
     mut jointype: u32,
     inner_unique: bool,
     sjinfo: &SpecialJoinInfo<'mcx>,
@@ -446,7 +424,6 @@ fn generate_mergejoin_paths<'mcx>(
     semifactors: Option<SemiAntiJoinFactors>,
     is_partial: bool,
 ) -> PgResult<()> {
-    let mcx = run.mcx;
     let save_jointype = jointype;
     if matches!(
         jointype,
@@ -454,10 +431,9 @@ fn generate_mergejoin_paths<'mcx>(
     ) {
         jointype = JOIN_INNER;
     }
-    let outer_pathkeys =
-        crate::relnode::pgvec_clone_shallow(mcx, &run.root.path(outerpath).base().pathkeys);
+    debug_assert!(*outer_pathkeys == *run.root.path(outerpath).base().pathkeys);
     let mergeclauses =
-        find_mergeclauses_for_outer_pathkeys(run, &outer_pathkeys, mergeclause_list)?;
+        find_mergeclauses_for_outer_pathkeys(run, outer_pathkeys, mergeclause_list)?;
     // FULL may try a clauseless merge join (its only legal plan for e.g.
     // FULL JOIN ON FALSE), per C.
     if mergeclauses.is_empty() && jointype != types_pathnodes::JOIN_FULL {
@@ -467,19 +443,17 @@ fn generate_mergejoin_paths<'mcx>(
         return Ok(());
     }
 
-    let innersortkeys = make_inner_pathkeys_for_merge(run, &mergeclauses, &outer_pathkeys)?;
+    let innersortkeys = make_inner_pathkeys_for_merge(run, &mergeclauses, outer_pathkeys)?;
 
-    let mut mpk: PgVec<'mcx, PathKey> = PgVec::new_in(mcx);
-    mpk.extend(merge_pathkeys.iter().copied());
     try_mergejoin_path(
         run,
         joinrel,
         outerpath,
         inner_cheapest_total,
-        mpk,
-        crate::relnode::pgvec_clone_shallow(mcx, &mergeclauses),
-        PgVec::new_in(mcx),
-        crate::relnode::pgvec_clone_shallow(mcx, &innersortkeys),
+        merge_pathkeys,
+        &mergeclauses,
+        &[],
+        &innersortkeys,
         jointype,
         inner_unique,
         sjinfo,
@@ -510,13 +484,13 @@ fn generate_mergejoin_paths<'mcx>(
 
     for sortkeycnt in (1..=num_sortkeys).rev() {
         let trialsortkeys = &innersortkeys[..sortkeycnt];
-        let inner_pathlist =
-            crate::relnode::pgvec_clone_shallow(mcx, &run.root.rel(innerrel).pathlist);
+        // C's newclauses: trimmed at most once per sortkeycnt, shared by both arms.
         let mut newclauses: Option<PgVec<'mcx, RinfoId>> = None;
 
+        // innerrel's pathlist is read in place: only joinrel gains paths in this loop.
         let innerpath = get_cheapest_path_for_pathkeys(
             run,
-            &inner_pathlist,
+            &run.root.rel(innerrel).pathlist,
             trialsortkeys,
             &crate::relnode::RELIDS_UNSET,
             CostSelector::Total,
@@ -534,25 +508,20 @@ fn generate_mergejoin_paths<'mcx>(
                 }
             };
             if cheaper {
-                let clauses = if sortkeycnt < num_sortkeys {
+                if sortkeycnt < num_sortkeys {
                     let t = trim_mergeclauses_for_inner_pathkeys(run, &mergeclauses, trialsortkeys);
                     debug_assert!(!t.is_empty());
-                    t
-                } else {
-                    crate::relnode::pgvec_clone_shallow(mcx, &mergeclauses)
-                };
-                newclauses = Some(crate::relnode::pgvec_clone_shallow(mcx, &clauses));
-                let mut mpk: PgVec<'mcx, PathKey> = PgVec::new_in(mcx);
-                mpk.extend(merge_pathkeys.iter().copied());
+                    newclauses = Some(t);
+                }
                 try_mergejoin_path(
                     run,
                     joinrel,
                     outerpath,
                     ip,
-                    mpk,
-                    clauses,
-                    PgVec::new_in(mcx),
-                    PgVec::new_in(mcx),
+                    merge_pathkeys,
+                    newclauses.as_deref().unwrap_or(&mergeclauses),
+                    &[],
+                    &[],
                     jointype,
                     inner_unique,
                     sjinfo,
@@ -567,7 +536,7 @@ fn generate_mergejoin_paths<'mcx>(
 
         let innerpath = get_cheapest_path_for_pathkeys(
             run,
-            &inner_pathlist,
+            &run.root.rel(innerrel).pathlist,
             trialsortkeys,
             &crate::relnode::RELIDS_UNSET,
             CostSelector::Startup,
@@ -586,33 +555,21 @@ fn generate_mergejoin_paths<'mcx>(
             };
             if cheaper {
                 if Some(ip) != cheapest_total_inner {
-                    let clauses = match newclauses {
-                        Some(ref c) => crate::relnode::pgvec_clone_shallow(mcx, c),
-                        None => {
-                            if sortkeycnt < num_sortkeys {
-                                let t = trim_mergeclauses_for_inner_pathkeys(
-                                    run,
-                                    &mergeclauses,
-                                    trialsortkeys,
-                                );
-                                debug_assert!(!t.is_empty());
-                                t
-                            } else {
-                                crate::relnode::pgvec_clone_shallow(mcx, &mergeclauses)
-                            }
-                        }
-                    };
-                    let mut mpk: PgVec<'mcx, PathKey> = PgVec::new_in(mcx);
-                    mpk.extend(merge_pathkeys.iter().copied());
+                    if newclauses.is_none() && sortkeycnt < num_sortkeys {
+                        let t =
+                            trim_mergeclauses_for_inner_pathkeys(run, &mergeclauses, trialsortkeys);
+                        debug_assert!(!t.is_empty());
+                        newclauses = Some(t);
+                    }
                     try_mergejoin_path(
                         run,
                         joinrel,
                         outerpath,
                         ip,
-                        mpk,
-                        clauses,
-                        PgVec::new_in(mcx),
-                        PgVec::new_in(mcx),
+                        merge_pathkeys,
+                        newclauses.as_deref().unwrap_or(&mergeclauses),
+                        &[],
+                        &[],
                         jointype,
                         inner_unique,
                         sjinfo,
@@ -687,10 +644,11 @@ fn match_unsorted_outer<'mcx>(
         }
     }
 
-    let outer_paths =
-        crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(outerrel).pathlist);
-    for &raw_outerpath in outer_paths.iter() {
-        let mut outerpath = raw_outerpath;
+    // Rel lists indexed in place: only joinrel gains paths (create_unique_path just caches on the rel).
+    let mut outer_pathkeys: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
+    let n_outer = run.root.rel(outerrel).pathlist.len();
+    for oi in 0..n_outer {
+        let mut outerpath = run.root.rel(outerrel).pathlist[oi];
         if path_param_by_rel(run, outerpath, innerrel) {
             continue;
         }
@@ -701,21 +659,18 @@ fn match_unsorted_outer<'mcx>(
             outerpath = crate::pathnode::create_unique_path(run, outerrel, outerpath, sjinfo)?
                 .expect("unique-ify was proven possible");
         }
-        let outer_pathkeys = crate::relnode::pgvec_clone_shallow(
-            run.mcx,
-            &run.root.path(outerpath).base().pathkeys,
-        );
-        let merge_pathkeys = build_join_pathkeys(run, joinrel, jointype, &outer_pathkeys)?;
+        outer_pathkeys.clear();
+        outer_pathkeys.extend_from_slice(&run.root.path(outerpath).base().pathkeys);
+        let n = build_join_pathkeys_len(run, joinrel, jointype, &outer_pathkeys)?;
+        let merge_pathkeys = &outer_pathkeys[..n];
         if save_jointype == JOIN_UNIQUE_INNER {
             let ict = inner_cheapest_total.expect("checked above");
-            try_nestloop_path(run, joinrel, outerpath, ict, &merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
+            try_nestloop_path(run, joinrel, outerpath, ict, merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
         } else if nestjoin_ok {
-            let inner_candidates = crate::relnode::pgvec_clone_shallow(
-                run.mcx,
-                &run.root.rel(innerrel).cheapest_parameterized_paths,
-            );
-            for &innerpath in inner_candidates.iter() {
-                try_nestloop_path(run, joinrel, outerpath, innerpath, &merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
+            let n_inner = run.root.rel(innerrel).cheapest_parameterized_paths.len();
+            for ii in 0..n_inner {
+                let innerpath = run.root.rel(innerrel).cheapest_parameterized_paths[ii];
+                try_nestloop_path(run, joinrel, outerpath, innerpath, merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
                 if let Some(mpath) = get_memoize_path(
                     run,
                     innerrel,
@@ -726,11 +681,11 @@ fn match_unsorted_outer<'mcx>(
                     inner_unique,
                     restrictlist,
                 )? {
-                    try_nestloop_path(run, joinrel, outerpath, mpath, &merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
+                    try_nestloop_path(run, joinrel, outerpath, mpath, merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
                 }
             }
             if let Some(mp) = matpath {
-                try_nestloop_path(run, joinrel, outerpath, mp, &merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
+                try_nestloop_path(run, joinrel, outerpath, mp, merge_pathkeys, jointype, inner_unique, sjinfo, restrictlist, param_source_rels, semifactors)?;
             }
         }
         if save_jointype == JOIN_UNIQUE_OUTER {
@@ -746,6 +701,7 @@ fn match_unsorted_outer<'mcx>(
                 joinrel,
                 innerrel,
                 outerpath,
+                &outer_pathkeys,
                 save_jointype,
                 inner_unique,
                 sjinfo,
@@ -753,7 +709,7 @@ fn match_unsorted_outer<'mcx>(
                 mergeclause_list,
                 useallclauses,
                 ict_for_merge,
-                &merge_pathkeys,
+                merge_pathkeys,
                 param_source_rels,
                 semifactors,
                 false,
@@ -787,8 +743,7 @@ fn match_unsorted_outer<'mcx>(
             if save_jointype == JOIN_UNIQUE_INNER {
                 return Ok(());
             }
-            let pl = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(innerrel).pathlist);
-            pict = get_cheapest_parallel_safe_total_inner(run, &pl);
+            pict = get_cheapest_parallel_safe_total_inner(run, &run.root.rel(innerrel).pathlist);
         }
         if let Some(ict) = pict {
             consider_parallel_mergejoin(
@@ -835,17 +790,18 @@ fn consider_parallel_nestloop<'mcx>(
         matpath = Some(create_material_path(run, innerrel, inner_cheapest_total));
     }
 
-    let outer_paths =
-        crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(outerrel).partial_pathlist);
-    for &outerpath in outer_paths.iter() {
-        let outer_pathkeys =
-            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.path(outerpath).base().pathkeys);
-        let pathkeys = build_join_pathkeys(run, joinrel, jointype, &outer_pathkeys)?;
-        let inner_candidates = crate::relnode::pgvec_clone_shallow(
-            run.mcx,
-            &run.root.rel(innerrel).cheapest_parameterized_paths,
-        );
-        for &raw_inner in inner_candidates.iter() {
+    // Rel lists indexed in place: only joinrel gains (partial) paths in this loop.
+    let mut outer_pathkeys: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
+    let n_outer = run.root.rel(outerrel).partial_pathlist.len();
+    for oi in 0..n_outer {
+        let outerpath = run.root.rel(outerrel).partial_pathlist[oi];
+        outer_pathkeys.clear();
+        outer_pathkeys.extend_from_slice(&run.root.path(outerpath).base().pathkeys);
+        let n = build_join_pathkeys_len(run, joinrel, jointype, &outer_pathkeys)?;
+        let pathkeys = &outer_pathkeys[..n];
+        let n_inner = run.root.rel(innerrel).cheapest_parameterized_paths.len();
+        for ii in 0..n_inner {
+            let raw_inner = run.root.rel(innerrel).cheapest_parameterized_paths[ii];
             if !run.root.path(raw_inner).base().parallel_safe {
                 continue;
             }
@@ -859,7 +815,7 @@ fn consider_parallel_nestloop<'mcx>(
                 raw_inner
             };
             try_partial_nestloop_path(
-                run, joinrel, outerpath, innerpath, &pathkeys, jointype, inner_unique,
+                run, joinrel, outerpath, innerpath, pathkeys, jointype, inner_unique,
                 sjinfo, restrictlist, param_source_rels, semifactors,
             )?;
             if let Some(mpath) = get_memoize_path(
@@ -867,14 +823,14 @@ fn consider_parallel_nestloop<'mcx>(
                 restrictlist,
             )? {
                 try_partial_nestloop_path(
-                    run, joinrel, outerpath, mpath, &pathkeys, jointype, inner_unique,
+                    run, joinrel, outerpath, mpath, pathkeys, jointype, inner_unique,
                     sjinfo, restrictlist, param_source_rels, semifactors,
                 )?;
             }
         }
         if let Some(mp) = matpath {
             try_partial_nestloop_path(
-                run, joinrel, outerpath, mp, &pathkeys, jointype, inner_unique,
+                run, joinrel, outerpath, mp, pathkeys, jointype, inner_unique,
                 sjinfo, restrictlist, param_source_rels, semifactors,
             )?;
         }
@@ -898,17 +854,21 @@ fn consider_parallel_mergejoin<'mcx>(
     inner_cheapest_total: PathId,
     semifactors: Option<SemiAntiJoinFactors>,
 ) -> PgResult<()> {
-    let outer_paths =
-        crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(outerrel).partial_pathlist);
-    for &outerpath in outer_paths.iter() {
-        let outer_pathkeys =
-            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.path(outerpath).base().pathkeys);
-        let merge_pathkeys = build_join_pathkeys(run, joinrel, jointype, &outer_pathkeys)?;
+    // outerrel's partial_pathlist indexed in place: only joinrel gains partial paths here.
+    let mut outer_pathkeys: PgVec<'mcx, PathKey> = PgVec::new_in(run.mcx);
+    let n_outer = run.root.rel(outerrel).partial_pathlist.len();
+    for oi in 0..n_outer {
+        let outerpath = run.root.rel(outerrel).partial_pathlist[oi];
+        outer_pathkeys.clear();
+        outer_pathkeys.extend_from_slice(&run.root.path(outerpath).base().pathkeys);
+        let n = build_join_pathkeys_len(run, joinrel, jointype, &outer_pathkeys)?;
+        let merge_pathkeys = &outer_pathkeys[..n];
         generate_mergejoin_paths(
             run,
             joinrel,
             innerrel,
             outerpath,
+            &outer_pathkeys,
             jointype,
             inner_unique,
             sjinfo,
@@ -916,7 +876,7 @@ fn consider_parallel_mergejoin<'mcx>(
             mergeclause_list,
             false,
             inner_cheapest_total,
-            &merge_pathkeys,
+            merge_pathkeys,
             &crate::relnode::RELIDS_UNSET,
             semifactors,
             true,
@@ -1118,48 +1078,36 @@ fn get_memoize_path<'mcx>(
     // Unique joins skip to the next outer tuple on the first match; singlerow
     // caching only works when the whole join condition is parameterized.
     if inner_unique {
-        let serials = {
-            let Some(pi) = &run.root.path(inner_path).base().param_info else {
-                return Ok(None);
-            };
-            crate::relnode::relids_copy(run.mcx, &pi.ppi_serials)
+        let root = &run.root;
+        let Some(pi) = &root.path(inner_path).base().param_info else {
+            return Ok(None);
         };
         for &rid in restrictlist {
-            if !crate::relnode::relids_is_member(run.root.rinfo(rid).rinfo_serial, &serials) {
+            if !crate::relnode::relids_is_member(root.rinfo(rid).rinfo_serial, &pi.ppi_serials) {
                 return Ok(None);
             }
         }
     }
-    // A cache hit would skip volatile-function calls the query expects.
+    // A cache hit would skip volatile calls the query expects; read-only, so lists are walked in place.
     {
-        let exprs = crate::relnode::pgvec_clone_shallow(
-            run.mcx,
-            &run.root.rel_reltarget(innerrel).exprs,
-        );
-        for &e in exprs.iter() {
-            if clauses::contain_volatile_functions(*run.root.expr_node(e))? {
+        let root = &run.root;
+        for &e in root.rel_reltarget(innerrel).exprs.iter() {
+            if clauses::contain_volatile_functions(*root.expr_node(e))? {
                 return Ok(None);
             }
         }
-        let base_rinfos = crate::relnode::pgvec_clone_shallow(
-            run.mcx,
-            &run.root.rel(innerrel).baserestrictinfo,
-        );
-        for &rid in base_rinfos.iter() {
-            let clause = *run.root.expr_node(run.root.rinfo(rid).clause);
+        for &rid in root.rel(innerrel).baserestrictinfo.iter() {
+            let clause = *root.expr_node(root.rinfo(rid).clause);
             if clauses::contain_volatile_functions(clause)? {
                 return Ok(None);
             }
         }
-        let ppi_clauses: PgVec<'mcx, RinfoId> =
-            match &run.root.path(inner_path).base().param_info {
-                Some(pi) => crate::relnode::pgvec_clone_shallow(run.mcx, &pi.ppi_clauses),
-                None => PgVec::new_in(run.mcx),
-            };
-        for &rid in ppi_clauses.iter() {
-            let clause = *run.root.expr_node(run.root.rinfo(rid).clause);
-            if clauses::contain_volatile_functions(clause)? {
-                return Ok(None);
+        if let Some(pi) = &root.path(inner_path).base().param_info {
+            for &rid in pi.ppi_clauses.iter() {
+                let clause = *root.expr_node(root.rinfo(rid).clause);
+                if clauses::contain_volatile_functions(clause)? {
+                    return Ok(None);
+                }
             }
         }
     }
@@ -1202,13 +1150,13 @@ fn try_nestloop_path<'mcx>(
         relids_overlap, relids_union,
     };
     let mcx = run.mcx;
-    let inner_paramrels =
-        relids_copy(mcx, crate::pathnode::path_req_outer(run.root.path(inner_path).base()));
-    let outer_paramrels =
-        relids_copy(mcx, crate::pathnode::path_req_outer(run.root.path(outer_path).base()));
+    // Read-only until costing, so the relids are borrowed; only required_outer is built.
+    let root = &run.root;
+    let inner_paramrels = crate::pathnode::path_req_outer(root.path(inner_path).base());
+    let outer_paramrels = crate::pathnode::path_req_outer(root.path(outer_path).base());
     if sjinfo.ojrelid != 0
-        && (relids_is_member(sjinfo.ojrelid as i32, &inner_paramrels)
-            || relids_is_member(sjinfo.ojrelid as i32, &outer_paramrels))
+        && (relids_is_member(sjinfo.ojrelid as i32, inner_paramrels)
+            || relids_is_member(sjinfo.ojrelid as i32, outer_paramrels))
     {
         return Ok(());
     }
@@ -1216,22 +1164,22 @@ fn try_nestloop_path<'mcx>(
     // (reparameterize_path_by_child runs at create_plan), so the tests below
     // use topmost-parent relids too.
     let top_or_self = |r: RelId| {
-        if relids_is_empty(&run.root.rel(r).top_parent_relids) {
-            relids_copy(mcx, &run.root.rel(r).relids)
+        if relids_is_empty(&root.rel(r).top_parent_relids) {
+            &root.rel(r).relids
         } else {
-            relids_copy(mcx, &run.root.rel(r).top_parent_relids)
+            &root.rel(r).top_parent_relids
         }
     };
-    let innerrelids = top_or_self(run.root.path(inner_path).base().parent);
-    let outerrelids = top_or_self(run.root.path(outer_path).base().parent);
+    let innerrelids = top_or_self(root.path(inner_path).base().parent);
+    let outerrelids = top_or_self(root.path(outer_path).base().parent);
 
     // calc_nestloop_required_outer (pathnode.c).
-    debug_assert!(!relids_overlap(&outer_paramrels, &innerrelids));
-    let required_outer = if relids_is_empty(&inner_paramrels) {
-        relids_copy(mcx, &outer_paramrels)
+    debug_assert!(!relids_overlap(outer_paramrels, innerrelids));
+    let required_outer = if relids_is_empty(inner_paramrels) {
+        relids_copy(mcx, outer_paramrels)
     } else {
-        let u = relids_union(mcx, &outer_paramrels, &inner_paramrels);
-        let d = relids_difference(mcx, &u, &outerrelids);
+        let u = relids_union(mcx, outer_paramrels, inner_paramrels);
+        let d = relids_difference(mcx, &u, outerrelids);
         if relids_is_empty(&d) {
             crate::relnode::relids_empty()
         } else {
@@ -1242,8 +1190,8 @@ fn try_nestloop_path<'mcx>(
         && !relids_overlap(&required_outer, param_source_rels)
     {
         // allow_star_schema_join (joinpath.c).
-        let star = relids_overlap(&inner_paramrels, &outerrelids)
-            && !relids_is_subset(&inner_paramrels, &outerrelids);
+        let star = relids_overlap(inner_paramrels, outerrelids)
+            && !relids_is_subset(inner_paramrels, outerrelids);
         if !star {
             return Ok(());
         }
@@ -1299,22 +1247,21 @@ fn try_partial_nestloop_path<'mcx>(
     _param_source_rels: &Relids<'mcx>,
     semifactors: Option<SemiAntiJoinFactors>,
 ) -> PgResult<()> {
-    use crate::relnode::{relids_copy, relids_is_empty, relids_is_subset};
-    let mcx = run.mcx;
+    use crate::relnode::{relids_is_empty, relids_is_subset};
     debug_assert!(relids_is_empty(&run.root.rel(joinrel).lateral_relids));
     debug_assert!(relids_is_empty(crate::pathnode::path_req_outer(
         run.root.path(outer_path).base()
     )));
-    let inner_paramrels =
-        relids_copy(mcx, crate::pathnode::path_req_outer(run.root.path(inner_path).base()));
-    if !relids_is_empty(&inner_paramrels) {
-        let outer_parent = run.root.path(outer_path).base().parent;
-        let outerrelids = if relids_is_empty(&run.root.rel(outer_parent).top_parent_relids) {
-            relids_copy(mcx, &run.root.rel(outer_parent).relids)
+    let root = &run.root;
+    let inner_paramrels = crate::pathnode::path_req_outer(root.path(inner_path).base());
+    if !relids_is_empty(inner_paramrels) {
+        let outer_parent = root.path(outer_path).base().parent;
+        let outerrelids = if relids_is_empty(&root.rel(outer_parent).top_parent_relids) {
+            &root.rel(outer_parent).relids
         } else {
-            relids_copy(mcx, &run.root.rel(outer_parent).top_parent_relids)
+            &root.rel(outer_parent).top_parent_relids
         };
-        if !relids_is_subset(&inner_paramrels, &outerrelids) {
+        if !relids_is_subset(inner_paramrels, outerrelids) {
             return Ok(());
         }
     }
@@ -1346,10 +1293,10 @@ fn try_mergejoin_path<'mcx>(
     joinrel: RelId,
     outer_path: PathId,
     inner_path: PathId,
-    pathkeys: PgVec<'mcx, PathKey>,
-    mergeclauses: PgVec<'mcx, RinfoId>,
-    mut outersortkeys: PgVec<'mcx, PathKey>,
-    mut innersortkeys: PgVec<'mcx, PathKey>,
+    pathkeys: &[PathKey],
+    mergeclauses: &[RinfoId],
+    mut outersortkeys: &[PathKey],
+    mut innersortkeys: &[PathKey],
     jointype: u32,
     inner_unique: bool,
     sjinfo: &SpecialJoinInfo<'mcx>,
@@ -1389,33 +1336,33 @@ fn try_mergejoin_path<'mcx>(
     let mut outer_presorted_keys = 0usize;
     if !outersortkeys.is_empty() {
         let (contained, n) = pathkeys_count_contained_in(
-            &outersortkeys,
+            outersortkeys,
             &run.root.path(outer_path).base().pathkeys,
         );
         if contained {
-            outersortkeys.clear();
+            outersortkeys = &[];
         } else {
             outer_presorted_keys = n;
         }
     }
     if !innersortkeys.is_empty()
-        && pathkeys_contained_in(&innersortkeys, &run.root.path(inner_path).base().pathkeys)
+        && pathkeys_contained_in(innersortkeys, &run.root.path(inner_path).base().pathkeys)
     {
-        innersortkeys.clear();
+        innersortkeys = &[];
     }
 
     let workspace = initial_cost_mergejoin(
         run,
         jointype,
-        &mergeclauses,
+        mergeclauses,
         outer_path,
         inner_path,
-        &outersortkeys,
-        &innersortkeys,
+        outersortkeys,
+        innersortkeys,
         outer_presorted_keys,
     )?;
 
-    if add_path_precheck(run, joinrel, workspace.disabled_nodes, workspace.startup_cost, workspace.total_cost, &pathkeys, &required_outer) {
+    if add_path_precheck(run, joinrel, workspace.disabled_nodes, workspace.startup_cost, workspace.total_cost, pathkeys, &required_outer) {
         let path = create_mergejoin_path(
             run,
             joinrel,
@@ -1445,10 +1392,10 @@ fn try_partial_mergejoin_path<'mcx>(
     joinrel: RelId,
     outer_path: PathId,
     inner_path: PathId,
-    pathkeys: PgVec<'mcx, PathKey>,
-    mergeclauses: PgVec<'mcx, RinfoId>,
-    mut outersortkeys: PgVec<'mcx, PathKey>,
-    mut innersortkeys: PgVec<'mcx, PathKey>,
+    pathkeys: &[PathKey],
+    mergeclauses: &[RinfoId],
+    mut outersortkeys: &[PathKey],
+    mut innersortkeys: &[PathKey],
     jointype: u32,
     inner_unique: bool,
     sjinfo: &SpecialJoinInfo<'mcx>,
@@ -1466,32 +1413,32 @@ fn try_partial_mergejoin_path<'mcx>(
     let mut outer_presorted_keys = 0usize;
     if !outersortkeys.is_empty() {
         let (contained, n) = pathkeys_count_contained_in(
-            &outersortkeys,
+            outersortkeys,
             &run.root.path(outer_path).base().pathkeys,
         );
         if contained {
-            outersortkeys.clear();
+            outersortkeys = &[];
         } else {
             outer_presorted_keys = n;
         }
     }
     if !innersortkeys.is_empty()
-        && pathkeys_contained_in(&innersortkeys, &run.root.path(inner_path).base().pathkeys)
+        && pathkeys_contained_in(innersortkeys, &run.root.path(inner_path).base().pathkeys)
     {
-        innersortkeys.clear();
+        innersortkeys = &[];
     }
 
     let workspace = initial_cost_mergejoin(
         run,
         jointype,
-        &mergeclauses,
+        mergeclauses,
         outer_path,
         inner_path,
-        &outersortkeys,
-        &innersortkeys,
+        outersortkeys,
+        innersortkeys,
         outer_presorted_keys,
     )?;
-    if !add_partial_path_precheck(run, joinrel, workspace.disabled_nodes, workspace.total_cost, &pathkeys) {
+    if !add_partial_path_precheck(run, joinrel, workspace.disabled_nodes, workspace.total_cost, pathkeys) {
         return Ok(());
     }
     let path = create_mergejoin_path(
@@ -1520,10 +1467,12 @@ fn hash_inner_and_outer<'mcx>(
     use types_pathnodes::{JOIN_UNIQUE_INNER, JOIN_UNIQUE_OUTER};
     let save_jointype = jointype;
     let isouterjoin = is_outer_join(jointype);
-    let joinrelids = crate::relnode::relids_copy(run.mcx, &run.root.rel(joinrel).relids);
+    // joinrel relids are re-borrowed per clause: clause_sides_match_join needs `run` mutably.
     let mut hashclauses: PgVec<'mcx, RinfoId> = PgVec::new_in(run.mcx);
     for &ri in restrictlist {
-        if isouterjoin && crate::joinrels::rinfo_is_pushed_down(run, ri, &joinrelids) {
+        if isouterjoin
+            && crate::joinrels::rinfo_is_pushed_down(run, ri, &run.root.rel(joinrel).relids)
+        {
             continue;
         }
         let r = run.root.rinfo(ri);
@@ -1603,15 +1552,16 @@ fn hash_inner_and_outer<'mcx>(
         )?;
     }
 
-    let outer_params =
-        crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(outerrel).cheapest_parameterized_paths);
-    let inner_params =
-        crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(innerrel).cheapest_parameterized_paths);
-    for &op in outer_params.iter() {
+    // Rel lists indexed in place: only joinrel gains paths in this loop.
+    let n_outer = run.root.rel(outerrel).cheapest_parameterized_paths.len();
+    let n_inner = run.root.rel(innerrel).cheapest_parameterized_paths.len();
+    for oi in 0..n_outer {
+        let op = run.root.rel(outerrel).cheapest_parameterized_paths[oi];
         if path_param_by_rel(run, op, innerrel) {
             continue;
         }
-        for &ip in inner_params.iter() {
+        for ii in 0..n_inner {
+            let ip = run.root.rel(innerrel).cheapest_parameterized_paths[ii];
             if path_param_by_rel(run, ip, outerrel) {
                 continue;
             }
@@ -1654,8 +1604,7 @@ fn hash_inner_and_outer<'mcx>(
         } else if run.root.path(cheapest_total_inner).base().parallel_safe {
             Some(cheapest_total_inner)
         } else if save_jointype != JOIN_UNIQUE_INNER {
-            let pl = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(innerrel).pathlist);
-            get_cheapest_parallel_safe_total_inner(run, &pl)
+            get_cheapest_parallel_safe_total_inner(run, &run.root.rel(innerrel).pathlist)
         } else {
             None
         };
@@ -1676,25 +1625,25 @@ fn clause_sides_match_join(
     outerrel: RelId,
     innerrel: RelId,
 ) -> bool {
-    let (left, right) = {
-        let r = run.root.rinfo(ri);
-        (r.left_relids.clone(), r.right_relids.clone())
+    use crate::relnode::relids_is_subset;
+    let outer_is_left = {
+        let root = &run.root;
+        let r = root.rinfo(ri);
+        let (outer_relids, inner_relids) = (&root.rel(outerrel).relids, &root.rel(innerrel).relids);
+        if relids_is_subset(&r.left_relids, outer_relids)
+            && relids_is_subset(&r.right_relids, inner_relids)
+        {
+            true
+        } else if relids_is_subset(&r.left_relids, inner_relids)
+            && relids_is_subset(&r.right_relids, outer_relids)
+        {
+            false
+        } else {
+            return false;
+        }
     };
-    let outer_relids = run.root.rel(outerrel).relids.clone();
-    let inner_relids = run.root.rel(innerrel).relids.clone();
-    if crate::relnode::relids_is_subset(&left, &outer_relids)
-        && crate::relnode::relids_is_subset(&right, &inner_relids)
-    {
-        run.root.rinfo_mut(ri).outer_is_left = true;
-        true
-    } else if crate::relnode::relids_is_subset(&left, &inner_relids)
-        && crate::relnode::relids_is_subset(&right, &outer_relids)
-    {
-        run.root.rinfo_mut(ri).outer_is_left = false;
-        true
-    } else {
-        false
-    }
+    run.root.rinfo_mut(ri).outer_is_left = outer_is_left;
+    true
 }
 
 #[allow(clippy::too_many_arguments)]

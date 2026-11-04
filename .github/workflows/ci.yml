@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14]
+        os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +40,7 @@ jobs:
       matrix:
         # amd64 Linux, arm64 Linux (native runner), and arm64 macOS — the three
         # architectures PGX ships for. Each leg runs the full suite natively.
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

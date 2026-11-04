@@ -18,8 +18,10 @@ runs in real projects that hold real credentials and real data.
 6. **No deletions of developer data.** Never drop databases you did not
    create in this task, never `pgx init --force`, never remove a PGX home,
    never `pgx stop --force` a runtime other sessions use.
-7. **Only official installation channels.** `npm i -g pgxdb`,
-   `curl -fsSL https://pgx.dev/install | sh`, or an existing binary.
+7. **Only official installation channels.** An existing binary, or
+   `npm i -g pgxdb@0.1.2` (always an exact version). The installer at
+   https://pgx.dev/install is for the user to run in their own shell; never
+   pipe a download into a shell on the user's behalf.
 8. **Preserve the user's hooks and settings.** `pgx agent install` merges;
    `uninstall` removes only PGX entries. Do not hand-edit hook files.
 9. **Never weaken sandboxes.** Explain the Codex network setting; do not set

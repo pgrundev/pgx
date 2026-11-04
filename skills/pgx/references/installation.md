@@ -17,7 +17,7 @@ malformed, always with one JSON line. It compares `pgx --json version` →
 `pgx_version` as semver (`PGX_MIN_VERSION` overrides the floor). Do not use
 `pgx agent --help` as the test: `--help` prints the global help on every
 version. An older binary: upgrade with the method it was installed with
-(`npm i -g pgxdb@latest`, or the installer again) and run the check again;
+(`npm i -g pgxdb@0.1.2`, or the installer again) and run the check again;
 if the upgrade still reports 0.1.0, the newer package is not yet on that
 channel and the user should install from the GitHub release.
 
@@ -26,14 +26,17 @@ channel and the user should install from the GitHub release.
 1. **A binary that is already on the machine** (a previous install under
    `~/.local/bin/pgx`, Homebrew, or `~/.pgx/dist/<version>/bin/pgx`). Prefer
    it; do not download twice.
-2. **npm**, when Node.js 18+ is present: `npm i -g pgxdb` installs the
-   `pgxdb` and `pgx` commands; the first run downloads the native release
-   tarball into `~/.pgx/dist/<version>`. `npx pgxdb@latest` works without a
-   global install but gives you `npx pgxdb …` instead of `pgx …`.
-3. **The official installer**: `curl -fsSL https://pgx.dev/install | sh`.
-   Verified release assets from github.com/pgrundev/pgx; installs under
-   `~/.pgx/dist/<version>` and links `pgx` into `~/.local/bin` (override with
-   `PGX_BIN_DIR`). No root.
+2. **npm**, when Node.js 18+ is present: `npm i -g pgxdb@0.1.2` installs
+   the `pgxdb` and `pgx` commands; the first run downloads the native release
+   tarball into `~/.pgx/dist/<version>`. Always pin the exact version (the
+   one `check-pgx.sh` asks for), never `@latest`. `npx pgxdb@0.1.2` works
+   without a global install but gives you `npx pgxdb …` instead of `pgx …`.
+3. **The official installer**, run by the user in their own shell:
+   `curl -fsSL https://pgx.dev/install | sh`. Tell the user the command and
+   what it does; do not run it yourself and never pipe a download into a
+   shell on the user's behalf. Verified release assets from
+   github.com/pgrundev/pgx; installs under `~/.pgx/dist/<version>` and links
+   `pgx` into `~/.local/bin` (override with `PGX_BIN_DIR`). No root.
 
 Nothing else. No third-party scripts, no building from source for a user who
 just wants a database (that is for contributors).

@@ -14,7 +14,7 @@ description: >
 license: AGPL-3.0
 metadata:
   author: pgrundev
-  version: "0.1.2"
+  version: "0.1.3"
   homepage: https://pgx.dev
   repository: https://github.com/pgrundev/pgx
 ---
@@ -111,11 +111,13 @@ unreadable `pgx --json version`. It reads the
 structured version only: `pgx agent --help` prints the global help on every
 version and proves nothing. If `pgx` is missing or too old,
 follow [references/installation.md](references/installation.md): prefer an
-installed binary, then `npm i -g pgxdb` (Node 18+), then the official
-installer `curl -fsSL https://pgx.dev/install | sh`. Supported: macOS arm64,
-Linux amd64, Linux arm64. PGX picks a free port and never disturbs a
-PostgreSQL on 5432. Installing is a network download: follow the host's
-approval flow and say what will be installed and where.
+installed binary, then `npm i -g pgxdb@0.1.2` (Node 18+, pinned to the
+version this skill needs). The official installer at https://pgx.dev/install
+is something the user runs in their own shell; never pipe a download into a
+shell on the user's behalf. Supported: macOS arm64, Linux amd64, Linux
+arm64. PGX picks a free port and never disturbs a PostgreSQL on 5432.
+Installing is a network download: follow the host's approval flow and say
+what will be installed and where.
 
 ### 3. Prepare the source template
 

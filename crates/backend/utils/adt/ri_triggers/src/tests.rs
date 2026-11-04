@@ -26,6 +26,9 @@ fn stub_info(constraint_oid: Oid, root: Oid, oid_hv: u32, root_hv: u32) -> RiCon
         period_contained_by_oper: InvalidOid,
         agged_period_contained_by_oper: InvalidOid,
         period_intersect_oper: InvalidOid,
+        conindid: InvalidOid,
+        fastpath_state: RiFastPathState::Unknown,
+        fpmeta: None,
     }
 }
 

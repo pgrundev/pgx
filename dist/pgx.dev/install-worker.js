@@ -9,7 +9,7 @@
 // reviewed and tagged. The Worker owns only the /install route.
 //
 // Deploy: see README.md. Set INSTALL_REF to the released tag, e.g.
-//   wrangler deploy --var INSTALL_REF:v0.1.0-beta.1
+//   wrangler deploy --var INSTALL_REF:v0.1.0
 // NOT yet deployed — pending approval and Cloudflare access.
 const REPO = "pgrundev/pgx";
 // A pinned ref is either a semver-ish tag (v1.2.3, optionally -beta.1) or a

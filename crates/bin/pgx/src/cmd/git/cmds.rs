@@ -69,7 +69,8 @@ fn agent_session_active(cfg: &GitConfig) -> bool {
 
 fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
     let t0 = std::time::Instant::now();
-    let repo = core::require_repo(cwd)?;
+    let mut repo = core::require_repo(cwd)?;
+    core::ensure_identity(&crate::layout::Home::resolve().root, &mut repo)?;
     let mut steps: Vec<(String, String)> = vec![(
         "Git repository detected".into(),
         format!(
@@ -87,7 +88,7 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
         "PGX runtime ready".into(),
         format!("port {}", ctx.config.port),
     ));
-    let _lock = state::lock(&ctx.home.root, &repo.repo_id, core::LOCK_WAIT)?;
+    let lock = state::lock(&ctx.home.root, &repo.repo_id, core::LOCK_WAIT)?;
     let (cfg0, file) = core::load_config_file(&repo)?;
     let main_branch = o
         .main
@@ -129,8 +130,9 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
     });
     st.main_branch = main_branch.clone();
     st.cluster_id = ctx.cluster_id();
+    st.common_dir = repo.common_dir.to_string_lossy().into_owned();
     let mut client = ctx.connect("postgres")?;
-    for n in core::recover(&mut client, &mut st)? {
+    for n in core::recover(&ctx, &mut client, &mut st)? {
         out.note(&format!("pgx git: {n}"));
     }
     let (main_db, how) = core::ensure_main(out, &ctx, &mut client, &mut st, &source)?;
@@ -182,21 +184,17 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
     }
     let (cfg, _) = core::load_config(&repo)?;
 
-    // First (or refreshed) snapshot.
-    let so = core::sync_locked(
-        out,
-        &ctx,
-        &mut client,
-        &repo,
-        &mut st,
-        &cfg,
-        &SyncOpts::default(),
-    )?;
+    // First (or refreshed) snapshot: the explicit path takes its own locks.
+    client.close();
+    drop(lock);
+    let so = core::sync_explicit(out, &ctx, &repo, &cfg, &SyncOpts::default())?;
     if !so.ok() {
-        client.close();
         return Err(PgxError::failure(so.message.clone())
             .hint("fix the cause and rerun `pgx git init` (safe to repeat)"));
     }
+    let _lock = state::lock(&ctx.home.root, &repo.repo_id, core::LOCK_WAIT)?;
+    let mut st = core::require_state(&ctx, &repo)?;
+    let mut client = ctx.connect("postgres")?;
     steps.push((
         format!("Main snapshot {} ready", gen_label(so.generation)),
         match st.current() {
@@ -570,7 +568,8 @@ fn ls(out: &Out, cwd: &Path) -> Result<ExitCode> {
     let ctx = Ctx::load()?;
     let st = core::require_state(&ctx, &repo)?;
     let cur = st.current_generation();
-    let worktrees = repo.worktrees();
+    let live_ids = repo.live_worktree_ids().unwrap_or_default();
+    let missing_wts = repo.missing_worktrees();
     let existing: std::collections::HashMap<String, u64> = if ctx.running_pid().is_some() {
         ctx.connect("postgres")
             .ok()
@@ -604,9 +603,10 @@ fn ls(out: &Out, cwd: &Path) -> Result<ExitCode> {
             Role::Detached => b.worktree_id == repo.worktree_id && here_branch.is_none(),
         };
         let wt_alive = b.role == Role::Main
-            || worktrees
+            || live_ids.iter().any(|(id, _)| *id == b.worktree_id)
+            || missing_wts
                 .iter()
-                .any(|(p, _)| p.to_string_lossy() == b.worktree_path);
+                .any(|p| p.to_string_lossy() == b.worktree_path);
         let branch_alive = b.role != Role::Branch || repo.branch_exists(&b.branch);
         let status = if !existing.is_empty() && !existing.contains_key(&b.database) {
             "missing"
@@ -715,19 +715,8 @@ fn sync(out: &Out, cwd: &Path, force: bool, migrate: bool) -> Result<ExitCode> {
         .hint("run `pgx git init`"));
     }
     let ctx = core::runtime(out, false)?;
-    let _lock = state::lock(&ctx.home.root, &repo.repo_id, core::LOCK_WAIT)?;
-    let mut st = core::require_state(&ctx, &repo)?;
-    let mut client = ctx.connect("postgres")?;
-    let o = core::sync_locked(
-        out,
-        &ctx,
-        &mut client,
-        &repo,
-        &mut st,
-        &cfg,
-        &SyncOpts { force, migrate },
-    )?;
-    client.close();
+    let o = core::sync_explicit(out, &ctx, &repo, &cfg, &SyncOpts { force, migrate })?;
+    let st = core::require_state(&ctx, &repo)?;
     let mut text = format!("{} {}", if o.ok() { "✓" } else { "✗" }, o.message);
     if o.status == "published" || o.status == "pending" && o.generation != o.previous {
         text.push_str(&format!(
@@ -796,7 +785,7 @@ fn print_hook_feedback(res: &Resolution, st: &RepoState) {
         eprintln!("pgx git: {n}");
     }
     if let Some(s) = &res.sync {
-        if s.status == "published" || s.status == "failed" {
+        if matches!(s.status, "published" | "failed" | "skipped" | "pending") {
             eprintln!("pgx git: {}", s.message);
         }
     }
@@ -931,6 +920,13 @@ fn exec(out: &Out, cwd: &Path, command: Vec<String>) -> Result<ExitCode> {
             },
         );
     }
+    if let Some(script) = super::guard::shell_script(&command) {
+        if let Some(reason) = super::guard::check(script, cwd) {
+            return Err(PgxError::usage(format!(
+                "PGX refused the command: {reason}"
+            )));
+        }
+    }
     // Fail closed: no database, no command (never the inherited DATABASE_URL).
     let (ctx, repo, _cfg, st, res) =
         core::resolve_here(&out.quiet(), cwd, Create::Yes, core::LOCK_WAIT)?;
@@ -993,16 +989,8 @@ fn reset(out: &Out, cwd: &Path, force: bool) -> Result<ExitCode> {
         )));
     }
     // Reset onto the latest main state.
-    let so = core::sync_locked(
-        out,
-        &ctx,
-        &mut client,
-        &repo,
-        &mut st,
-        &cfg,
-        &SyncOpts::default(),
-    )?;
-    if !so.ok() {
+    let so = core::sync_auto(out, &ctx, &mut client, &repo, &mut st, &cfg)?;
+    if so.status == "failed" || so.status == "skipped" {
         out.note(&format!("pgx git: {}", so.message));
     }
     let snap = st.current().cloned().ok_or_else(|| {
@@ -1033,29 +1021,85 @@ fn reset(out: &Out, cwd: &Path, force: bool) -> Result<ExitCode> {
         }
     }
     let target = crate::names::validate_user_target(&res.db.database)?;
-    let tmp = crate::names::validate_user_target(&super::naming::staging_db(
+    let token = format!("{:x}", core::now());
+    let fresh = crate::names::validate_user_target(&super::naming::staging_db(
         &st.repo_slug,
-        &format!("r{}", core::now()),
+        &format!("r{token}"),
+    ))?;
+    let old = crate::names::validate_user_target(&super::naming::staging_db(
+        &st.repo_slug,
+        &format!("o{token}"),
     ))?;
     let snap_db = crate::names::validate(&snap.database)?;
-    // Clone first, so a failure leaves the old database in place.
-    let c = crate::cmd::db::clone_database(&ctx, &mut client, &snap_db, &tmp, None)?;
-    client
-        .simple_query(&format!("DROP DATABASE {} WITH (FORCE)", target.quoted()))
-        .map_err(|e| {
-            let _ = client.simple_query(&format!("DROP DATABASE IF EXISTS {}", tmp.quoted()));
-            crate::cmd::db_error(e, &format!("cannot drop {target}"))
-        })?;
-    client
-        .simple_query(&format!(
-            "ALTER DATABASE {} RENAME TO {}",
-            tmp.quoted(),
-            target.quoted()
-        ))
-        .map_err(|e| {
-            let _ = client.simple_query(&format!("DROP DATABASE IF EXISTS {}", tmp.quoted()));
-            crate::cmd::db_error(e, "cannot rename the fresh copy (the branch database is recreated from main on next use)")
-        })?;
+    // Intent first: an interrupted reset is finished or undone by recovery
+    // (`core::recover`), never leaked.
+    st.reset = Some(state::ResetIntent {
+        target: target.as_str().to_string(),
+        old: old.as_str().to_string(),
+        old_oid: res.db.oid,
+        fresh: fresh.as_str().to_string(),
+        fresh_oid: None,
+    });
+    state::save(&ctx.home.root, &st)?;
+    let steps = (|| -> Result<crate::cmd::db::Cloned> {
+        // 1. The fresh copy, while the original is still in place.
+        let c = crate::cmd::db::clone_database(&ctx, &mut client, &snap_db, &fresh, None)?;
+        if let Some(r) = st.reset.as_mut() {
+            r.fresh_oid = crate::cmd::db::database_oid(&mut client, fresh.as_str())?;
+        }
+        state::save(&ctx.home.root, &st)?;
+        // 2. Move the original aside (its sessions end: confirmed above).
+        let _ = client.simple_query(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {} AND pid <> pg_backend_pid()",
+            crate::pgwire::quote_literal(target.as_str())
+        ));
+        let mut moved = Err(PgxError::failure("not attempted"));
+        for _ in 0..40 {
+            moved = client
+                .simple_query(&format!(
+                    "ALTER DATABASE {} RENAME TO {}",
+                    target.quoted(),
+                    old.quoted()
+                ))
+                .map(|_| ())
+                .map_err(|e| crate::cmd::db_error(e, &format!("cannot move {target} aside")));
+            if moved.is_ok() {
+                break;
+            }
+            let _ = client.simple_query(&format!(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {} AND pid <> pg_backend_pid()",
+                crate::pgwire::quote_literal(target.as_str())
+            ));
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        moved?;
+        core::failpoint("reset")?;
+        // 3. The fresh copy takes the branch's name; 4. the original goes.
+        client
+            .simple_query(&format!(
+                "ALTER DATABASE {} RENAME TO {}",
+                fresh.quoted(),
+                target.quoted()
+            ))
+            .map_err(|e| crate::cmd::db_error(e, "cannot put the fresh copy in place"))?;
+        let _ = client.simple_query(&format!(
+            "DROP DATABASE IF EXISTS {} WITH (FORCE)",
+            old.quoted()
+        ));
+        Ok(c)
+    })();
+    let c = match steps {
+        Ok(c) => c,
+        Err(e) => {
+            // Undo what was done; the branch keeps its original database.
+            if let Some(r) = st.reset.take() {
+                let _ = core::recover_reset(&mut client, &r);
+            }
+            state::save(&ctx.home.root, &st)?;
+            return Err(e);
+        }
+    };
+    st.reset = None;
     let oid = crate::cmd::db::database_oid(&mut client, target.as_str())?.unwrap_or(0);
     client.close();
     if let Some(i) = st
@@ -1095,7 +1139,7 @@ fn prune(out: &Out, cwd: &Path, apply: bool, grace: Option<String>) -> Result<Ex
     let _lock = state::lock(&ctx.home.root, &repo.repo_id, core::LOCK_WAIT)?;
     let mut st = core::require_state(&ctx, &repo)?;
     let mut client = ctx.connect("postgres")?;
-    for n in core::recover(&mut client, &mut st)? {
+    for n in core::recover(&ctx, &mut client, &mut st)? {
         out.note(&format!("pgx git: {n}"));
     }
     let grace_secs = match &grace {
@@ -1104,9 +1148,12 @@ fn prune(out: &Out, cwd: &Path, apply: bool, grace: Option<String>) -> Result<Ex
     };
     let now = core::now();
     // Deletion decisions need Git's real answer: refuse rather than guess.
-    let worktrees = repo
-        .worktrees_checked()
+    // Worktrees are matched by identity (a moved worktree keeps its id); a
+    // listed worktree that is missing from disk right now is never "removed".
+    let live_ids = repo
+        .live_worktree_ids()
         .ok_or_else(|| PgxError::failure("`git worktree list` failed; nothing was pruned"))?;
+    let missing_wts = repo.missing_worktrees();
     let agent_names: std::collections::HashSet<String> =
         crate::ttlstore::MetaStore::new(&ctx.home.root)
             .list()
@@ -1119,18 +1166,19 @@ fn prune(out: &Out, cwd: &Path, apply: bool, grace: Option<String>) -> Result<Ex
     let mut text = String::new();
     let mut keep = Vec::new();
     for b in std::mem::take(&mut st.branches) {
-        let wt_listed = worktrees
-            .iter()
-            .any(|(p, _)| p.to_string_lossy() == b.worktree_path);
+        let wt_listed = live_ids.iter().any(|(id, _)| *id == b.worktree_id)
+            || missing_wts
+                .iter()
+                .any(|p| p.to_string_lossy() == b.worktree_path);
         let reason = match b.role {
             Role::Branch if repo.branch_known(&b.branch).is_none() => None,
             Role::Branch if repo.branch_known(&b.branch) == Some(false) => {
                 Some(format!("branch {} was deleted", b.branch))
             }
             _ if !wt_listed => Some(format!("worktree {} was removed", b.worktree_path)),
-            Role::Detached => worktrees
+            Role::Detached => live_ids
                 .iter()
-                .find(|(p, _)| p.to_string_lossy() == b.worktree_path)
+                .find(|(id, _)| *id == b.worktree_id)
                 .and_then(|(_, br)| br.as_ref())
                 .map(|_| "the worktree is back on a branch".to_string()),
             _ => None,
@@ -1749,15 +1797,7 @@ fn hook(name: &str, args: &[String]) -> ExitCode {
             let mut st = core::require_state(&ctx, &repo)?;
             let mut client = ctx.connect("postgres")?;
             let o = if cfg.auto_sync {
-                core::sync_locked(
-                    &out.quiet(),
-                    &ctx,
-                    &mut client,
-                    &repo,
-                    &mut st,
-                    &cfg,
-                    &SyncOpts::default(),
-                )?
+                core::sync_auto(&out.quiet(), &ctx, &mut client, &repo, &mut st, &cfg)?
             } else {
                 client.close();
                 return Ok(());
@@ -1765,7 +1805,7 @@ fn hook(name: &str, args: &[String]) -> ExitCode {
             client.close();
             match o.status {
                 "published" => eprintln!("✓ PGX: {}", o.message),
-                "failed" | "pending" => eprintln!("! PGX: {}", o.message),
+                "failed" | "pending" | "skipped" => eprintln!("! PGX: {}", o.message),
                 _ => {}
             }
             if !o.pending.is_empty() {

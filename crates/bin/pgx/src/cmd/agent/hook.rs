@@ -32,13 +32,63 @@ fn notice(msg: &str) {
 /// second delivery of the same command (two hook files) leaves it alone.
 pub const ROUTED_MARK: &str = "# pgx-routed";
 
-/// Already rewritten by this hook.
+/// A command this hook rewrote, parsed back: `(agent id, cwd, the original
+/// command)`. Strict: exactly `<pgx> agent exec [--agent <id>] --cwd <dir>
+/// -- <shell> -c '<original>' # pgx-routed <branch>` and nothing else, so a
+/// hand-written `# pgx-routed` comment cannot pass for one.
+pub fn parse_routed(command: &str) -> Option<(Option<String>, String, String)> {
+    let last = command.lines().last()?;
+    let mark = last.rfind(ROUTED_MARK)?;
+    let tail = &last[mark + ROUTED_MARK.len()..];
+    let tail_ok = tail.starts_with(' ') && tail.split_whitespace().count() == 1;
+    if !tail_ok {
+        return None;
+    }
+    let segs = crate::cmd::git::guard::segments(command);
+    let [w] = segs.as_slice() else { return None };
+    let w: Vec<&str> = w.iter().map(String::as_str).collect();
+    let prog_ok = |p: &str| p.rsplit('/').next() == Some("pgx");
+    let (agent, rest) = match w.as_slice() {
+        [p, "agent", "exec", "--agent", a, rest @ ..] if prog_ok(p) => (Some(a.to_string()), rest),
+        [p, "agent", "exec", rest @ ..] if prog_ok(p) => (None, rest),
+        _ => return None,
+    };
+    match rest {
+        ["--cwd", cwd, "--", shell, "-c", inner]
+            if matches!(
+                shell.rsplit('/').next(),
+                Some("sh" | "bash" | "zsh" | "dash" | "ksh")
+            ) =>
+        {
+            Some((agent, cwd.to_string(), inner.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// Already rewritten by this hook (for anyone: [`parse_routed`] says for whom).
+#[cfg(test)]
 pub fn is_routed(command: &str) -> bool {
-    command
-        .lines()
-        .last()
-        .is_some_and(|l| l.contains(ROUTED_MARK))
-        && (command.contains(" agent exec --agent ") || command.contains(" agent exec --cwd "))
+    parse_routed(command).is_some()
+}
+
+/// Rewritten by this hook *for this caller* (the parent session when
+/// `agent_id` is None, else that subagent).
+fn routed_for(command: &str, agent_id: Option<&str>) -> Option<String> {
+    let (a, _cwd, inner) = parse_routed(command)?;
+    (a.as_deref() == agent_id).then_some(inner)
+}
+
+/// PGX Git: the Git scope a session (or subagent) last ran a command in.
+/// Several agents in one worktree share its HEAD: when it moves under an
+/// agent, that agent is told once before its database changes.
+fn scope_path(home: &Home, key: &super::identity::SessionKey) -> std::path::PathBuf {
+    let mut k = key.clone();
+    k.scope = None;
+    home.root.join("agent").join("exported").join(format!(
+        "scope-{}",
+        super::identity::hex16(super::identity::fnv1a64(k.material().as_bytes()))
+    ))
 }
 
 /// PGX Git: the branch a Claude Code session's environment file exported at
@@ -490,14 +540,41 @@ fn tool_use(
             .and_then(|t| t.get("command"))
             .and_then(|c| c.as_str())
             .unwrap_or("");
-        if !is_routed(command) {
-            let cwd = input.cwd.clone().unwrap_or_else(|| r.project.root.clone());
-            if let Some(reason) = crate::cmd::git::guard::check(command, &cwd) {
-                println!("{}", deny_json(&reason));
+        let cwd = input.cwd.clone().unwrap_or_else(|| r.project.root.clone());
+        // A command this hook rewrote is checked by what it will run.
+        let text =
+            routed_for(command, input.agent_id.as_deref()).unwrap_or_else(|| command.to_string());
+        if let Some(reason) = crate::cmd::git::guard::check(&text, &cwd) {
+            println!("{}", deny_json(&reason));
+            audit(
+                home,
+                input,
+                "denied: branch switch followed by more commands",
+            );
+            return ExitCode::Ok;
+        }
+        // The worktree's HEAD moved since this agent's last command (it
+        // switched, or another agent or the developer did): say so once
+        // before its commands start using another Git branch's database.
+        if let Some(scope) = &r.key.scope {
+            let p = scope_path(home, &r.key);
+            let last = std::fs::read_to_string(&p)
+                .ok()
+                .map(|s| s.trim().to_string());
+            if let Some(d) = p.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let _ = std::fs::write(&p, scope);
+            if last.as_deref().is_some_and(|l| !l.is_empty() && l != scope) {
+                let label = r.git.as_ref().map(|g| g.label.clone()).unwrap_or_default();
+                let why = format!(
+                    "the Git branch in this worktree is now {label}, not the one your previous command ran on. From now on your commands use your own copy of {label}'s database. If you did not switch branches yourself, another agent or the developer did (agents sharing a worktree share its HEAD; give each agent its own worktree): check before changing data. Re-run the command to continue."
+                );
+                println!("{}", deny_json(&why));
                 audit(
                     home,
                     input,
-                    "denied: branch switch followed by more commands",
+                    &format!("denied once: git branch changed to {label}"),
                 );
                 return ExitCode::Ok;
             }
@@ -520,7 +597,7 @@ fn tool_use(
             .unwrap_or("");
         if let (Some(exported), false) = (
             read_exported(home, &r.key),
-            command.trim().is_empty() || is_routed(command),
+            command.trim().is_empty() || routed_for(command, None).is_some(),
         ) {
             match session::up(&out.quiet(), r) {
                 Ok(res) if res.branch.as_str() != exported => {
@@ -579,7 +656,7 @@ fn tool_use(
         .get("command")
         .and_then(|c| c.as_str())
         .unwrap_or("");
-    if command.trim().is_empty() || is_routed(command) {
+    if command.trim().is_empty() || routed_for(command, input.agent_id.as_deref()).is_some() {
         touch_quietly(r);
         return ExitCode::Ok;
     }
@@ -689,6 +766,9 @@ pub fn run(out: &Out, opts: HookOpts) -> Result<ExitCode> {
             Ok(res) => {
                 if r.git.is_some() && input.host == Host::Claude {
                     write_exported(&home, &r.key, res.branch.as_str());
+                    if let Some(scope) = &r.key.scope {
+                        let _ = std::fs::write(scope_path(&home, &r.key), scope);
+                    }
                 }
                 emit_start(input.host, &env, &res);
                 audit(&home, &input, &format!("session branch {}", res.branch));

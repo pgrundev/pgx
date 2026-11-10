@@ -38,6 +38,12 @@ feature/auth ─ pgx_<repo>_auth_<hash>      the developer's branch database
   `git switch x && pgx git exec -- bin/rails db:migrate`.
 - `pgx --json git env` masks the password; never add `--reveal` (you do not
   need credentials: `pgx git exec` passes them to the command).
+- If a command is refused with "the Git branch in this worktree is now …",
+  the worktree's HEAD moved under you (your own switch, another agent, or the
+  developer). Check that the branch is the one you mean to work on; then
+  re-run. Parallel agents should each use their own worktree.
+- In Cursor, and in any shell PGX's hooks do not cover, run database
+  commands as `pgx git exec -- <command>` in PGX Git repositories.
 - If the developer's branch database is busy (a dev server), your branch is a
   logical copy; on main, a clone of the latest main snapshot. Nothing is
   terminated.

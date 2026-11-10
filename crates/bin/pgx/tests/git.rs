@@ -550,7 +550,7 @@ fn f_failed_sync_keeps_the_previous_snapshot_and_branches() {
     l.q(&d, "INSERT INTO t VALUES (5)");
     l.git(&d, &["switch", "main"]);
     l.q(&d, "ALTER TABLE t ADD COLUMN y int");
-    for fp in ["copy", "validate", "publish"] {
+    for fp in ["copy", "validate", "publish", "lock"] {
         let r = l.pgx_env(&d, &[("PGX_GIT_FAILPOINT", fp)], &["--json", "git", "sync"]);
         assert_eq!(r.code, 1, "{fp}: {}", r.all());
         let v = r.json();
@@ -1017,7 +1017,7 @@ fn i_existing_hooks_keep_working_and_uninstall_removes_only_ours() {
             .unwrap()
     ));
 
-    // core.hooksPath: hooks go where Git looks; a committed hooks dir is left alone.
+    // core.hooksPath into the work tree (husky & co.): PGX writes nothing there.
     let d2 = l.repo("husky");
     std::fs::create_dir_all(d2.join(".husky")).unwrap();
     std::fs::write(d2.join(".husky/post-checkout"), "#!/bin/sh\necho team\n").unwrap();
@@ -1036,9 +1036,12 @@ fn i_existing_hooks_keep_working_and_uninstall_removes_only_ours() {
             )
         })
         .collect();
-    assert_eq!(by["post-checkout"], "skipped", "{v}");
-    assert_eq!(by["post-merge"], "created", "{v}");
-    assert!(d2.join(".husky/post-merge").is_file());
+    for h in ["post-checkout", "post-merge", "post-rewrite"] {
+        assert_eq!(by[h], "skipped", "{v}");
+    }
+    assert!(!d2.join(".husky/post-merge").exists());
+    let detail = v["hooks"][0]["detail"].as_str().unwrap();
+    assert!(detail.contains("pgx git hook post-checkout"), "{detail}");
     assert_eq!(
         std::fs::read_to_string(d2.join(".husky/post-checkout")).unwrap(),
         "#!/bin/sh\necho team\n"
@@ -1680,8 +1683,20 @@ fn h2_a_claude_session_that_switches_git_branches_is_routed_to_the_new_branch() 
     let r = hook(tool.clone());
     assert_eq!(r.code, 0, "{}", r.all());
     assert!(!r.stdout.contains("updatedInput"), "{}", r.all());
-    // The agent switches Git branches: its next command goes to the new branch's copy.
+    // The agent switches Git branches: its next command is stopped once with
+    // the reason (HEAD moved under it), then goes to the new branch's copy.
     l.git(&d, &["switch", "-c", "feature/two"]);
+    let r = hook(tool.clone());
+    let v: serde_json::Value =
+        serde_json::from_str(r.stdout.trim()).unwrap_or_else(|_| panic!("{}", r.all()));
+    assert_eq!(v["hookSpecificOutput"]["permissionDecision"], "deny", "{v}");
+    assert!(
+        v["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("is now feature/two"),
+        "{v}"
+    );
     let r = hook(tool.clone());
     assert_eq!(r.code, 0, "{}", r.all());
     let v: serde_json::Value =
@@ -1843,4 +1858,344 @@ fn n_repairs_and_non_shell_hooks() {
     let r = l.pgx(&d, &["--json", "git", "status"]);
     assert_eq!(r.json()["enabled"], true, "{}", r.all());
     assert!(current_db(&l, &d).starts_with("pgx_app_old_config_"));
+}
+
+// ------------------------------------------------- review hardening (PR #45)
+
+fn spawn_quiet(l: &Lab, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> std::process::Child {
+    let mut c = l.p.cmd(args);
+    c.current_dir(dir);
+    l.scrub(&mut c);
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    common::spawn_locked(
+        c.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()),
+    )
+    .unwrap()
+}
+
+fn wait_for_db(l: &Lab, pred: impl Fn(&str) -> bool, secs: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    while Instant::now() < deadline {
+        if l.databases().iter().any(|n| pred(n)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+#[test]
+fn o1_hooks_are_never_written_to_shared_or_tool_managed_dirs() {
+    let l = lab();
+    // A hooks directory outside the repository (what a global core.hooksPath gives).
+    let shared = l.root.join("global-hooks");
+    std::fs::create_dir_all(&shared).unwrap();
+    let foreign = "#!/bin/sh\n# >>> pgx git hook >>>\n# someone else's copy\n# <<< pgx git hook <<<\necho shared\n";
+    std::fs::write(shared.join("post-checkout"), foreign).unwrap();
+    let d = l.repo("app");
+    l.git(&d, &["config", "core.hooksPath", shared.to_str().unwrap()]);
+    let v = l.init(&d, &[]);
+    assert!(
+        v["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|h| h["action"] == "skipped"),
+        "{v}"
+    );
+    assert!(
+        v["hooks"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("shared by every repository"),
+        "{v}"
+    );
+    assert!(!shared.join("post-merge").exists());
+    l.json(&d, &["git", "uninstall"]);
+    assert_eq!(
+        std::fs::read_to_string(shared.join("post-checkout")).unwrap(),
+        foreign,
+        "uninstall never touches a shared dir"
+    );
+    // husky v9: core.hooksPath = .husky/_ with generated, ignored files.
+    let h = l.repo("husky9");
+    std::fs::create_dir_all(h.join(".husky/_")).unwrap();
+    std::fs::write(
+        h.join(".husky/_/post-checkout"),
+        "#!/bin/sh\n. \"$(dirname \"$0\")/h\"\n",
+    )
+    .unwrap();
+    std::fs::write(h.join(".husky/_/.gitignore"), "*\n").unwrap();
+    l.git(&h, &["config", "core.hooksPath", ".husky/_"]);
+    let v = l.init(&h, &[]);
+    assert!(
+        v["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["action"] == "skipped"),
+        "{v}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(h.join(".husky/_/post-checkout")).unwrap(),
+        "#!/bin/sh\n. \"$(dirname \"$0\")/h\"\n"
+    );
+    // Without hooks the databases are still resolved on use.
+    l.git(&h, &["switch", "-c", "feature/x"]);
+    assert!(current_db(&l, &h).starts_with("pgx_husky9_x_"));
+}
+
+#[test]
+fn o2_moving_a_repository_or_worktree_keeps_its_databases_and_a_copy_gets_its_own() {
+    let l = lab();
+    let d = l.repo("app");
+    l.init(&d, &[]);
+    l.git(&d, &["switch", "-c", "feature/a"]);
+    l.q(&d, "CREATE TABLE mine(x int); INSERT INTO mine VALUES (7)");
+    let a = current_db(&l, &d);
+    let main_db = l.json(&d, &["git", "status"])["main_database"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    l.git(
+        &d,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature/wt",
+            l.root.join("wt1").to_str().unwrap(),
+        ],
+    );
+    let wt = current_db(&l, &l.root.join("wt1"));
+    // Move the whole repository.
+    let moved = l.root.join("moved-app");
+    std::fs::rename(&d, &moved).unwrap();
+    l.git(&moved, &["worktree", "repair"]);
+    assert_eq!(current_db(&l, &moved), a, "same database after mv");
+    assert_eq!(l.q(&moved, "SELECT x FROM mine"), "7");
+    assert_eq!(
+        l.json(&moved, &["git", "status"])["main_database"],
+        main_db.as_str()
+    );
+    // Move a linked worktree.
+    l.git(
+        &moved,
+        &[
+            "worktree",
+            "move",
+            l.root.join("wt1").to_str().unwrap(),
+            l.root.join("wt2").to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        current_db(&l, &l.root.join("wt2")),
+        wt,
+        "same database after git worktree move"
+    );
+    let p = l.json(&moved, &["git", "prune", "--grace", "1s"]);
+    assert!(
+        p["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["database"] != wt.as_str()),
+        "a moved worktree is not abandoned: {p}"
+    );
+    // A copy of the repository is a different repository.
+    let copy = l.root.join("copy-app");
+    let st = Command::new("cp")
+        .args(["-R", moved.to_str().unwrap(), copy.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let v = l.init(&copy, &[]);
+    assert_ne!(v["main_database"], main_db.as_str(), "{v}");
+    assert_ne!(current_db(&l, &copy), a);
+    assert_eq!(
+        current_db(&l, &moved),
+        a,
+        "the original keeps its databases"
+    );
+}
+
+#[test]
+fn o3_automatic_snapshots_never_block_or_capture_an_unsettled_main() {
+    let l = lab();
+    let d = l.repo("app");
+    l.init(&d, &[]);
+    l.q(&d, "CREATE TABLE t(x int)");
+    assert_eq!(l.json(&d, &["git", "sync"])["status"], "published");
+    let psql = find_psql();
+    // Main changes while something is connected to it (a migration may be running).
+    l.q(&d, "ALTER TABLE t ADD COLUMN y int");
+    let mut holder = spawn_quiet(
+        &l,
+        &d,
+        &[],
+        &[
+            "git",
+            "exec",
+            "--",
+            psql.to_str().unwrap(),
+            "-X",
+            "-qc",
+            "SELECT pg_sleep(20)",
+        ],
+    );
+    std::thread::sleep(Duration::from_millis(800));
+    let out = l.git(&d, &["switch", "-c", "feature/q"]);
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert!(out.stderr.contains("active connection"), "{}", out.all());
+    assert!(
+        out.stderr.contains("Cloned from main (v2)"),
+        "the settled baseline: {}",
+        out.all()
+    );
+    assert_eq!(
+        l.q(
+            &d,
+            "SELECT count(*) FROM information_schema.columns WHERE table_name = 't'"
+        ),
+        "1"
+    );
+    if cfg!(feature = "failpoints") {
+        // An explicit sync stuck mid-copy holds only the sync lock: checkouts proceed.
+        l.git(&d, &["switch", "main"]);
+        let mut hung = spawn_quiet(&l, &d, &[("PGX_GIT_FAILPOINT", "hang")], &["git", "sync"]);
+        assert!(
+            wait_for_db(&l, |n| n.contains("_stg_"), 30),
+            "staging never appeared"
+        );
+        let t = Instant::now();
+        let out = l.git(&d, &["switch", "-c", "feature/r"]);
+        let ms = t.elapsed().as_millis();
+        println!("`git switch -c` during a running snapshot: {ms} ms");
+        assert!(ms < 10_000, "{ms} ms");
+        assert!(
+            out.stderr.contains("PGX database ready: feature/r"),
+            "{}",
+            out.all()
+        );
+        assert!(
+            out.stderr.contains("another main snapshot is being taken"),
+            "{}",
+            out.all()
+        );
+        unsafe { libc::kill(hung.id() as i32, libc::SIGKILL) };
+        let _ = hung.wait();
+        let s = l.json(&d, &["git", "sync"]);
+        assert_eq!(s["status"], "published", "{s}");
+        assert!(
+            !l.databases().iter().any(|n| n.contains("_stg_")),
+            "{:?}",
+            l.databases()
+        );
+    }
+}
+
+#[cfg(feature = "failpoints")]
+#[test]
+fn o4_reset_is_crash_safe() {
+    let l = lab();
+    let d = l.repo("app");
+    l.init(&d, &[]);
+    l.git(&d, &["switch", "-c", "feature/x"]);
+    l.q(&d, "CREATE TABLE mine(x int); INSERT INTO mine VALUES (1)");
+    // A failure between the steps is undone: the branch keeps its data.
+    let r = l.pgx_env(
+        &d,
+        &[("PGX_GIT_FAILPOINT", "reset")],
+        &["git", "reset", "--from-main", "--force"],
+    );
+    assert_ne!(r.code, 0, "{}", r.all());
+    assert_eq!(l.q(&d, "SELECT x FROM mine"), "1");
+    assert!(
+        !l.databases().iter().any(|n| n.contains("_stg_")),
+        "{:?}",
+        l.databases()
+    );
+    // A crash between the steps is undone by the next command (never data loss).
+    let mut hung = spawn_quiet(
+        &l,
+        &d,
+        &[("PGX_GIT_FAILPOINT", "hang-reset")],
+        &["git", "reset", "--from-main", "--force"],
+    );
+    assert!(
+        wait_for_db(&l, |n| n.contains("_stg_o"), 30),
+        "{:?}",
+        l.databases()
+    );
+    unsafe { libc::kill(hung.id() as i32, libc::SIGKILL) };
+    let _ = hung.wait();
+    assert_eq!(
+        l.q(&d, "SELECT x FROM mine"),
+        "1",
+        "the original database was put back"
+    );
+    assert!(
+        !l.databases().iter().any(|n| n.contains("_stg_")),
+        "nothing leaked: {:?}",
+        l.databases()
+    );
+}
+
+#[test]
+fn o5_wrappers_refuse_switch_then_work_for_every_host() {
+    let l = lab();
+    let d = l.repo("app");
+    l.init(&d, &[]);
+    let script = "git switch -c feature/w && psql -Atc 'select 1'";
+    for args in [
+        vec!["git", "exec", "--", "/bin/sh", "-c", script],
+        vec![
+            "agent",
+            "exec",
+            "--id",
+            "codex-run",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ],
+    ] {
+        let r = l.pgx(&d, &args);
+        assert_eq!(r.code, 2, "{args:?}: {}", r.all());
+        assert!(r.stderr.contains("pgx git exec --"), "{}", r.all());
+    }
+    let st = l.git(&d, &["branch", "--list", "feature/w"]);
+    assert!(st.stdout.trim().is_empty(), "nothing ran");
+    // A plain switch with a redirection is fine.
+    let r = l.pgx(
+        &d,
+        &[
+            "git",
+            "exec",
+            "--",
+            "/bin/sh",
+            "-c",
+            "git switch -q -c feature/w 2>&1",
+        ],
+    );
+    assert_eq!(r.code, 0, "{}", r.all());
+    // The engine's main branch wins over a checked-out .pgx.toml that disagrees.
+    let t = std::fs::read_to_string(d.join(".pgx.toml")).unwrap();
+    std::fs::write(
+        d.join(".pgx.toml"),
+        t.replace("main_branch = \"main\"", "main_branch = \"trunk\""),
+    )
+    .unwrap();
+    assert_eq!(l.json(&d, &["git", "status"])["main_branch"], "main");
+    l.git(&d, &["switch", "main"]);
+    assert_eq!(
+        l.pgx(&d, &["git", "reset", "--from-main", "--force"]).code,
+        2,
+        "main stays protected"
+    );
 }

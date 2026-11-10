@@ -36,16 +36,16 @@ pub const HOOK_LOCK_WAIT: Duration = Duration::from_secs(60);
 /// in place. Compiled only with the `failpoints` Cargo feature (the test
 /// suites enable it); release builds contain a no-op and ignore the variable.
 #[cfg(not(feature = "failpoints"))]
-fn failpoint(_name: &str) -> Result<()> {
+pub(crate) fn failpoint(_name: &str) -> Result<()> {
     Ok(())
 }
 
 #[cfg(feature = "failpoints")]
-fn failpoint(name: &str) -> Result<()> {
+pub(crate) fn failpoint(name: &str) -> Result<()> {
     let Ok(v) = std::env::var("PGX_GIT_FAILPOINT") else {
         return Ok(());
     };
-    if v == "hang" && name == "validate" {
+    if (v == "hang" && name == "validate") || (v == "hang-reset" && name == "reset") {
         // Simulate a crash window: the caller kills us here.
         std::thread::sleep(Duration::from_secs(600));
     }
@@ -76,12 +76,16 @@ pub fn config_file(repo: &Repo) -> Option<PathBuf> {
 /// `enabled = false` is respected.
 pub fn load_config(repo: &Repo) -> Result<(GitConfig, Option<PathBuf>)> {
     let (mut cfg, file) = load_config_file(repo)?;
-    if !cfg.present {
-        let home = crate::layout::Home::resolve();
-        if home.is_initialized() {
-            if let Ok(Some(st)) = state::load(&home.root, &repo.repo_id) {
+    let home = crate::layout::Home::resolve();
+    if home.is_initialized() {
+        if let Ok(Some(st)) = state::load(&home.root, &repo.repo_id) {
+            if !cfg.present {
                 cfg.present = true;
                 cfg.enabled = true;
+            }
+            // The engine's main branch is the recorded one; hooks, reset and
+            // prune must agree with it whatever this checkout's file says.
+            if !st.main_branch.is_empty() {
                 cfg.main_branch = Some(st.main_branch.clone());
             }
         }
@@ -185,31 +189,41 @@ fn drop_if_ours(client: &mut Client, name: &str, oid: u64) {
 }
 
 /// Finish or roll back operations whose owner died (killed hook, crash,
-/// engine restart mid-copy). Idempotent; runs under the repository lock at
-/// the start of every mutating operation.
-pub fn recover(client: &mut Client, st: &mut RepoState) -> Result<Vec<String>> {
+/// engine restart mid-copy). Idempotent; call with the state lock held.
+///
+/// No pid checks (a pid can be reused, especially in containers): branch
+/// creations and resets run entirely under the state lock, so one seen in
+/// progress here is dead; a snapshot in progress is dead exactly when nobody
+/// holds the sync lock.
+pub fn recover(ctx: &Ctx, client: &mut Client, st: &mut RepoState) -> Result<Vec<String>> {
+    recover_with(ctx, client, st, false)
+}
+
+/// [`recover`] for a caller that holds the sync lock itself (a sync about to
+/// stage): then no other snapshot can be in progress.
+fn recover_with(
+    ctx: &Ctx,
+    client: &mut Client,
+    st: &mut RepoState,
+    sync_held: bool,
+) -> Result<Vec<String>> {
     let mut notes = Vec::new();
-    let me = std::process::id();
+    let sync_alive = !sync_held && state::sync_running(&ctx.home.root, &st.repo_id)?;
     for s in st.snapshots.iter_mut() {
-        if !matches!(s.state, SnapState::Preparing | SnapState::Validating) {
-            continue;
-        }
-        if s.owner_pid == me || crate::process::pid_alive(s.owner_pid) {
+        if !matches!(s.state, SnapState::Preparing | SnapState::Validating) || sync_alive {
             continue;
         }
         drop_if_exists(client, &s.staging);
         drop_if_ours(client, &s.database, s.oid);
         s.state = SnapState::Failed;
         s.generation = None;
-        s.error = Some(format!(
-            "interrupted: the process that staged it (pid {}) exited; staging copy removed",
-            s.owner_pid
-        ));
+        s.error =
+            Some("interrupted: the process taking it exited; staging copy removed".to_string());
         notes.push(format!("recovered an interrupted snapshot ({})", s.staging));
     }
     let mut keep = Vec::new();
     for mut b in std::mem::take(&mut st.branches) {
-        if b.creating && b.owner_pid != me && !crate::process::pid_alive(b.owner_pid) {
+        if b.creating {
             // CREATE DATABASE is atomic: if the database exists it is complete.
             match live_oid(client, &b.database)? {
                 Some(oid) => {
@@ -231,6 +245,9 @@ pub fn recover(client: &mut Client, st: &mut RepoState) -> Result<Vec<String>> {
         keep.push(b);
     }
     st.branches = keep;
+    if let Some(r) = st.reset.take() {
+        notes.push(recover_reset(client, &r)?);
+    }
     // Bound the history of failed attempts.
     let failed: Vec<usize> = st
         .snapshots
@@ -250,6 +267,61 @@ pub fn recover(client: &mut Client, st: &mut RepoState) -> Result<Vec<String>> {
         });
     }
     Ok(notes)
+}
+
+/// Finish an interrupted `pgx git reset` (state lock held): put a database
+/// back under the branch's name and remove the leftovers. Every name is
+/// OID-checked against the intent, so nothing else is ever touched.
+pub fn recover_reset(client: &mut Client, r: &state::ResetIntent) -> Result<String> {
+    // Undo rather than finish: an interrupted reset never costs the branch
+    // its data. Every database is identified by the OID the intent recorded.
+    let target = live_oid(client, &r.target)?;
+    let old = live_oid(client, &r.old)?.filter(|o| *o == r.old_oid);
+    let fresh_oid = r.fresh_oid.filter(|o| *o != 0);
+    let fresh = live_oid(client, &r.fresh)?.filter(|o| Some(*o) == fresh_oid);
+    let rename = |client: &mut Client, from: &str, to: &str| -> Result<()> {
+        let (f, t) = (
+            names::validate_user_target(from)?,
+            names::validate_user_target(to)?,
+        );
+        client
+            .simple_query(&format!(
+                "ALTER DATABASE {} RENAME TO {}",
+                f.quoted(),
+                t.quoted()
+            ))
+            .map_err(|e| db_error(e, "cannot undo an interrupted reset"))?;
+        Ok(())
+    };
+    let what = if target == Some(r.old_oid) {
+        // Never moved: drop the unused fresh copy.
+        if let Some(f) = fresh {
+            drop_if_ours(client, &r.fresh, f);
+        }
+        "the original database was never touched"
+    } else if let Some(o) = old {
+        // Moved aside: take a fresh copy out of the branch's name if it got
+        // there, then put the original back.
+        if let (Some(t), Some(fo)) = (target, fresh_oid) {
+            if t == fo {
+                drop_if_ours(client, &r.target, t);
+            }
+        }
+        if let Some(f) = fresh {
+            drop_if_ours(client, &r.fresh, f);
+        }
+        let _ = o;
+        rename(client, &r.old, &r.target)?;
+        "the original database was put back"
+    } else if target.is_some() && target == fresh_oid {
+        "the reset had completed"
+    } else {
+        "nothing was left to do"
+    };
+    Ok(format!(
+        "recovered an interrupted reset of {}: {what}",
+        r.target
+    ))
 }
 
 /// Where the main development database starts from on `pgx git init`.
@@ -274,6 +346,19 @@ pub fn copy_database(
     src: &DbName,
     dst: &DbName,
 ) -> Result<(&'static str, f64)> {
+    copy_database_with(out, ctx, client, src, dst, true)
+}
+
+/// [`copy_database`]; with `allow_logical = false` a busy source is an
+/// `InUse` error instead of a slow logical copy.
+pub fn copy_database_with(
+    out: &Out,
+    ctx: &Ctx,
+    client: &mut Client,
+    src: &DbName,
+    dst: &DbName,
+    allow_logical: bool,
+) -> Result<(&'static str, f64)> {
     let t0 = Instant::now();
     let busy = db::active_connections(client, src.as_str())?;
     if busy == 0 {
@@ -282,6 +367,12 @@ pub fn copy_database(
             Err(e) if e.code == ExitCode::InUse => {}
             Err(e) => return Err(e),
         }
+    }
+    if !allow_logical {
+        return Err(PgxError::new(
+            ExitCode::InUse,
+            format!("{src} has {busy} active connection(s)"),
+        ));
     }
     if crate::pgtools::locate().is_err() {
         return Err(PgxError::new(
@@ -569,11 +660,137 @@ fn record(st: &mut RepoState, o: &SyncOutcome) {
     });
 }
 
-/// Refresh the immutable main snapshot when main changed. Call with the
-/// repository lock held and `st` freshly loaded; saves `st`. Failures never
-/// touch the published snapshot or any branch database: they are recorded
-/// (`pgx git status` shows them) and returned as a `failed` outcome.
-pub fn sync_locked(
+/// Refresh the immutable main snapshot when main changed. Two entry points:
+///
+/// - [`sync_auto`] (Git hooks, lazily before a new branch database, `reset`):
+///   called with the state lock held. It never waits and never takes a slow
+///   copy: it keeps the current baseline and says why when another snapshot
+///   is being taken, when main is in use (it may be mid-migration or
+///   mid-`db:reset`), when main is missing, or when migrations committed on
+///   main are not applied yet. Otherwise it clones the idle main (fast).
+/// - [`sync_explicit`] (`pgx git sync`, `pgx git init`): takes the locks
+///   itself. A busy main is copied logically, and that slow copy runs with
+///   only the sync lock held, so hooks and agents are never stuck behind it.
+///
+/// Failures never touch the published snapshot or any branch database: they
+/// are recorded (`pgx git status` shows them) and returned as `failed`.
+pub fn sync_auto(
+    out: &Out,
+    ctx: &Ctx,
+    client: &mut Client,
+    repo: &Repo,
+    st: &mut RepoState,
+    cfg: &GitConfig,
+) -> Result<SyncOutcome> {
+    let t0 = Instant::now();
+    let Some(_sync) = state::try_sync_lock(&ctx.home.root, &st.repo_id)? else {
+        let g = st.current_generation();
+        return Ok(outcome(
+            "skipped",
+            g,
+            g,
+            format!(
+                "another main snapshot is being taken; {} stays the baseline for now",
+                gen_name(g)
+            ),
+            Vec::new(),
+            t0,
+            false,
+        ));
+    };
+    match plan(out, ctx, client, repo, st, cfg, &SyncOpts::default(), true)? {
+        Plan::Done(o) => Ok(o),
+        Plan::Stage(p) => {
+            let r = copy_validate(out, ctx, client, &p, cfg, false)
+                .and_then(|(m, got)| publish(ctx, client, st, &p, m, &got));
+            finish(ctx, client, st, &p, r, t0)
+        }
+    }
+}
+
+pub fn sync_explicit(
+    out: &Out,
+    ctx: &Ctx,
+    repo: &Repo,
+    cfg: &GitConfig,
+    opts: &SyncOpts,
+) -> Result<SyncOutcome> {
+    let t0 = Instant::now();
+    let _sync = state::sync_lock(&ctx.home.root, &repo.repo_id, LOCK_WAIT)?;
+    let p = {
+        let _l = state::lock(&ctx.home.root, &repo.repo_id, LOCK_WAIT)?;
+        let mut st = require_state(ctx, repo)?;
+        let mut client = ctx.connect("postgres")?;
+        let planned = plan(out, ctx, &mut client, repo, &mut st, cfg, opts, false);
+        client.close();
+        match planned? {
+            Plan::Done(o) => return Ok(o),
+            Plan::Stage(p) => p,
+        }
+    };
+    // The copy: only the sync lock is held.
+    let mut client = ctx.connect("postgres")?;
+    let copied = copy_validate(out, ctx, &mut client, &p, cfg, true);
+    let _l = state::lock(&ctx.home.root, &repo.repo_id, LOCK_WAIT)?;
+    let mut st = require_state(ctx, repo)?;
+    let r = copied.and_then(|(m, got)| publish(ctx, &mut client, &mut st, &p, m, &got));
+    let o = finish(ctx, &mut client, &mut st, &p, r, t0);
+    client.close();
+    o
+}
+
+fn gen_name(g: Option<u64>) -> String {
+    g.map(|g| format!("v{g}"))
+        .unwrap_or_else(|| "no snapshot".to_string())
+}
+
+fn outcome(
+    status: &'static str,
+    generation: Option<u64>,
+    previous: Option<u64>,
+    message: String,
+    pending: Vec<String>,
+    t0: Instant,
+    migrated: bool,
+) -> SyncOutcome {
+    SyncOutcome {
+        status,
+        generation,
+        previous,
+        message,
+        pending,
+        method: String::new(),
+        elapsed_ms: t0.elapsed().as_secs_f64() * 1000.0,
+        migrated,
+    }
+}
+
+/// Record a final outcome and save (state lock held).
+fn settle(ctx: &Ctx, st: &mut RepoState, o: SyncOutcome) -> Result<SyncOutcome> {
+    record(st, &o);
+    state::save(&ctx.home.root, st)?;
+    Ok(o)
+}
+
+/// What a sync will do once main has been examined.
+enum Plan {
+    Done(SyncOutcome),
+    Stage(Prepared),
+}
+
+struct Prepared {
+    staging: DbName,
+    main: DbName,
+    probe: MainProbe,
+    previous: Option<u64>,
+    migrated: bool,
+    pending_note: String,
+}
+
+/// Examine main (state lock held): recover, repair, fingerprint, migrations,
+/// decide; for a new snapshot, record the staging intent and save.
+#[allow(clippy::too_many_arguments)]
+fn plan(
     out: &Out,
     ctx: &Ctx,
     client: &mut Client,
@@ -581,9 +798,10 @@ pub fn sync_locked(
     st: &mut RepoState,
     cfg: &GitConfig,
     opts: &SyncOpts,
-) -> Result<SyncOutcome> {
+    auto: bool,
+) -> Result<Plan> {
     let t0 = Instant::now();
-    for n in recover(client, st)? {
+    for n in recover_with(ctx, client, st, true)? {
         out.note(&format!("pgx git: {n}"));
     }
     // A published snapshot whose database disappeared (dropped by hand) is
@@ -599,29 +817,55 @@ pub fn sync_locked(
         }
     }
     let previous = st.current_generation();
-    let repair = repair_source(client, st)?;
-    let (main_name, how) = ensure_main(out, ctx, client, st, &repair)?;
-    let failed = |st: &mut RepoState, message: String, migrated: bool| -> Result<SyncOutcome> {
-        let o = SyncOutcome {
-            status: "failed",
-            generation: previous,
+    let failed = |st: &mut RepoState, message: String, migrated: bool| -> Result<Plan> {
+        let o = outcome(
+            "failed",
             previous,
-            message: format!(
+            previous,
+            format!(
                 "main snapshot not refreshed: {message}{}",
                 match previous {
                     Some(p) => format!(" (v{p} is still the baseline)"),
                     None => String::new(),
                 }
             ),
-            pending: Vec::new(),
-            method: String::new(),
-            elapsed_ms: t0.elapsed().as_secs_f64() * 1000.0,
+            Vec::new(),
+            t0,
             migrated,
-        };
-        record(st, &o);
-        state::save(&ctx.home.root, st)?;
-        Ok(o)
+        );
+        Ok(Plan::Done(settle(ctx, st, o)?))
     };
+    let skip = |st: &mut RepoState,
+                why: String,
+                pending: Vec<String>,
+                status: &'static str|
+     -> Result<Plan> {
+        let o = outcome(
+            status,
+            previous,
+            previous,
+            format!("{why}; {} stays the baseline", gen_name(previous)),
+            pending,
+            t0,
+            false,
+        );
+        Ok(Plan::Done(settle(ctx, st, o)?))
+    };
+    let main_missing = match &st.main {
+        Some(m) => live_oid(client, &m.database)?.is_none(),
+        None => true,
+    };
+    if auto && main_missing && previous.is_some() {
+        // Possibly mid-`db:reset`: never recreate it behind the developer's back.
+        return skip(
+            st,
+            "the main database does not exist right now".to_string(),
+            Vec::new(),
+            "skipped",
+        );
+    }
+    let repair = repair_source(client, st)?;
+    let (main_name, how) = ensure_main(out, ctx, client, st, &repair)?;
     if how == "created empty" && previous.is_some() {
         // Never publish an empty main as the new baseline.
         return failed(
@@ -675,36 +919,60 @@ pub fn sync_locked(
                 cur.data_fingerprint.as_deref(),
             )
         {
-            let o = SyncOutcome {
-                status: if probe.pending.is_empty() {
+            let o = outcome(
+                if probe.pending.is_empty() {
                     "unchanged"
                 } else {
                     "pending"
                 },
-                generation: cur.generation,
+                cur.generation,
                 previous,
-                message: format!(
+                format!(
                     "main snapshot v{} is up to date{pending_note}",
                     cur.generation.unwrap_or(0)
                 ),
-                pending: probe.pending.clone(),
-                method: String::new(),
-                elapsed_ms: t0.elapsed().as_secs_f64() * 1000.0,
+                probe.pending.clone(),
+                t0,
                 migrated,
-            };
-            record(st, &o);
-            state::save(&ctx.home.root, st)?;
-            return Ok(o);
+            );
+            return Ok(Plan::Done(settle(ctx, st, o)?));
+        }
+    }
+    let main = names::validate(&main_name)?;
+    if auto && previous.is_some() {
+        // Automatic snapshots only of a settled main: no unapplied
+        // migrations (a half-migrated main is not a baseline) and nobody
+        // connected (a migration or reset may be running right now).
+        if !probe.pending.is_empty() {
+            return skip(
+                st,
+                format!(
+                    "main changed but {} migration(s) committed on {} are not applied yet (run them, then `pgx git sync`)",
+                    probe.pending.len(),
+                    st.main_branch
+                ),
+                probe.pending.clone(),
+                "pending",
+            );
+        }
+        let busy = db::active_connections(client, main.as_str())?;
+        if busy > 0 {
+            return skip(
+                st,
+                format!(
+                    "main changed but has {busy} active connection(s) (a migration may be running); `pgx git sync` takes a consistent copy"
+                ),
+                Vec::new(),
+                "skipped",
+            );
         }
     }
 
-    // Stage.
-    let staging = naming::staging_db(&st.repo_slug, &random_token());
-    let staging_name = names::validate_user_target(&staging)?;
+    let staging = names::validate_user_target(&naming::staging_db(&st.repo_slug, &random_token()))?;
     st.snapshots.push(Snapshot {
         generation: None,
         database: String::new(),
-        staging: staging.clone(),
+        staging: staging.as_str().to_string(),
         oid: 0,
         state: SnapState::Preparing,
         owner_pid: std::process::id(),
@@ -721,106 +989,38 @@ pub fn sync_locked(
         locked: false,
         error: None,
     });
-    let idx = st.snapshots.len() - 1;
     state::save(&ctx.home.root, st)?;
-
-    let result = stage_and_publish(
-        out,
-        ctx,
-        client,
-        st,
-        idx,
-        &main_name,
-        &staging_name,
-        &probe,
-        cfg,
-    );
-    let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    let o = match result {
-        Ok((generation, method)) => SyncOutcome {
-            status: if probe.pending.is_empty() {
-                "published"
-            } else {
-                "pending"
-            },
-            generation: Some(generation),
-            previous,
-            message: format!(
-                "published main snapshot v{generation}{}{pending_note}",
-                match previous {
-                    Some(p) => format!(" (previous v{p} kept)"),
-                    None => String::new(),
-                }
-            ),
-            pending: probe.pending.clone(),
-            method: method.to_string(),
-            elapsed_ms,
-            migrated,
-        },
-        Err(e) => {
-            drop_if_exists(client, &staging);
-            let s = &mut st.snapshots[idx];
-            if s.state != SnapState::Ready {
-                let (name, oid) = (s.database.clone(), s.oid);
-                drop_if_ours(client, &name, oid);
-                let s = &mut st.snapshots[idx];
-                s.state = SnapState::Failed;
-                s.generation = None;
-                s.error = Some(e.message.clone());
-            }
-            SyncOutcome {
-                status: "failed",
-                generation: previous,
-                previous,
-                message: format!(
-                    "main snapshot not refreshed: {}{}",
-                    e.message,
-                    match previous {
-                        Some(p) => format!(" (v{p} is still the baseline)"),
-                        None => String::new(),
-                    }
-                ),
-                pending: probe.pending.clone(),
-                method: String::new(),
-                elapsed_ms,
-                migrated,
-            }
-        }
-    };
-    record(st, &o);
-    state::save(&ctx.home.root, st)?;
-    Ok(o)
+    Ok(Plan::Stage(Prepared {
+        staging,
+        main,
+        probe,
+        previous,
+        migrated,
+        pending_note,
+    }))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn stage_and_publish(
+/// Copy main into the staging database and prove the copy is main's state.
+/// Needs no state lock (the sync lock protects the staging database).
+fn copy_validate(
     out: &Out,
     ctx: &Ctx,
     client: &mut Client,
-    st: &mut RepoState,
-    idx: usize,
-    main_name: &str,
-    staging: &DbName,
-    probe: &MainProbe,
+    p: &Prepared,
     cfg: &GitConfig,
-) -> Result<(u64, &'static str)> {
-    let main = names::validate(main_name)?;
-    let t0 = Instant::now();
-    let (method, _) = copy_database(out, ctx, client, &main, staging)?;
+    allow_logical: bool,
+) -> Result<(&'static str, Fingerprint)> {
+    let (method, _) = copy_database_with(out, ctx, client, &p.main, &p.staging, allow_logical)?;
     failpoint("copy")?;
-    st.snapshots[idx].state = SnapState::Validating;
-    st.snapshots[idx].method = method.to_string();
-    state::save(&ctx.home.root, st)?;
-
-    // Validate: the copy must be exactly main's state.
-    let mut sc = connect_db(ctx, staging.as_str())?;
-    let got = fingerprint::compute(&mut sc, cfg.sync_mode == super::config::SyncMode::Data)?;
+    let data = cfg.sync_mode == super::config::SyncMode::Data;
+    let mut sc = connect_db(ctx, p.staging.as_str())?;
+    let got = fingerprint::compute(&mut sc, data)?;
     failpoint("validate")?;
     let matches = |fp: &Fingerprint| fp.same_as(&got.schema, &got.migrations, got.data.as_deref());
-    if !matches(&probe.fp) {
+    if !matches(&p.probe.fp) {
         // A logical copy is a snapshot at dump time; main may have moved on since.
-        let mut mc = connect_db(ctx, main.as_str())?;
-        let again = fingerprint::compute(&mut mc, cfg.sync_mode == super::config::SyncMode::Data)?;
+        let mut mc = connect_db(ctx, p.main.as_str())?;
+        let again = fingerprint::compute(&mut mc, data)?;
         mc.close();
         if !matches(&again) {
             sc.close();
@@ -832,6 +1032,26 @@ fn stage_and_publish(
     // Frozen pages stay shared by every clone (no hint-bit rewrites on first read).
     let _ = sc.simple_query("VACUUM (FREEZE, ANALYZE)");
     sc.close();
+    Ok((method, got))
+}
+
+/// Publish atomically (state lock held): the generation exists only once the
+/// renamed, read-only database exists and the state file names it.
+fn publish(
+    ctx: &Ctx,
+    client: &mut Client,
+    st: &mut RepoState,
+    p: &Prepared,
+    method: &'static str,
+    got: &Fingerprint,
+) -> Result<u64> {
+    let idx = st
+        .snapshots
+        .iter()
+        .position(|s| s.staging == p.staging.as_str() && s.state == SnapState::Preparing)
+        .ok_or_else(|| {
+            PgxError::failure("the staging record disappeared from the PGX Git state")
+        })?;
     {
         let s = &mut st.snapshots[idx];
         s.schema_fingerprint = got.schema.clone();
@@ -839,10 +1059,8 @@ fn stage_and_publish(
         s.data_fingerprint = got.data.clone();
         s.migrations_applied = got.applied.len() as u64;
         s.tables = got.tables;
+        s.method = method.to_string();
     }
-
-    // Publish atomically: the generation exists only once the renamed,
-    // locked database exists and the state file names it.
     let generation = st.next_generation();
     let final_name =
         names::validate_user_target(&naming::snapshot_db(&st.repo_slug, &st.repo_id, generation))?;
@@ -854,23 +1072,30 @@ fn stage_and_publish(
     }
     // Record the staged copy's OID with the final name: recovery may drop
     // the final name only while it is still this copy.
-    st.snapshots[idx].oid = live_oid(client, staging.as_str())?.unwrap_or(0);
+    st.snapshots[idx].oid = live_oid(client, p.staging.as_str())?.unwrap_or(0);
     st.snapshots[idx].database = final_name.as_str().to_string();
     state::save(&ctx.home.root, st)?;
     failpoint("publish")?;
     client
         .simple_query(&format!(
             "ALTER DATABASE {} RENAME TO {}",
-            staging.quoted(),
+            p.staging.quoted(),
             final_name.quoted()
         ))
         .map_err(|e| db_error(e, "cannot publish the snapshot"))?;
-    let locked = client
+    // A snapshot that could not be made read-only is not published.
+    failpoint("lock")?;
+    client
         .simple_query(&format!(
             "ALTER DATABASE {} ALLOW_CONNECTIONS false",
             final_name.quoted()
         ))
-        .is_ok();
+        .map_err(|e| {
+            db_error(
+                e,
+                "cannot make the snapshot read-only (ALLOW_CONNECTIONS false)",
+            )
+        })?;
     let oid = live_oid(client, final_name.as_str())?
         .ok_or_else(|| PgxError::failure("the published snapshot vanished"))?;
     let prev = st.current_generation();
@@ -878,9 +1103,8 @@ fn stage_and_publish(
         let s = &mut st.snapshots[idx];
         s.generation = Some(generation);
         s.oid = oid;
-        s.locked = locked;
+        s.locked = true;
         s.state = SnapState::Ready;
-        s.elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
         s.owner_pid = 0;
     }
     // Keep the new baseline and the one before it; older ones are retired
@@ -895,7 +1119,85 @@ fn stage_and_publish(
         }
     }
     state::save(&ctx.home.root, st)?;
-    Ok((generation, method))
+    Ok(generation)
+}
+
+/// Turn the result of copy + publish into an outcome (state lock held):
+/// on failure, remove what was staged and keep the previous baseline.
+fn finish(
+    ctx: &Ctx,
+    client: &mut Client,
+    st: &mut RepoState,
+    p: &Prepared,
+    r: Result<u64>,
+    t0: Instant,
+) -> Result<SyncOutcome> {
+    let pos = st
+        .snapshots
+        .iter()
+        .position(|s| s.staging == p.staging.as_str());
+    let o = match r {
+        Ok(generation) => {
+            let method = pos
+                .map(|i| st.snapshots[i].method.clone())
+                .unwrap_or_default();
+            if let Some(i) = pos {
+                st.snapshots[i].elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            }
+            SyncOutcome {
+                status: if p.probe.pending.is_empty() {
+                    "published"
+                } else {
+                    "pending"
+                },
+                generation: Some(generation),
+                previous: p.previous,
+                message: format!(
+                    "published main snapshot v{generation}{}{}",
+                    match p.previous {
+                        Some(v) => format!(" (previous v{v} kept)"),
+                        None => String::new(),
+                    },
+                    p.pending_note
+                ),
+                pending: p.probe.pending.clone(),
+                method,
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1000.0,
+                migrated: p.migrated,
+            }
+        }
+        Err(e) => {
+            drop_if_exists(client, p.staging.as_str());
+            if let Some(i) = pos {
+                if st.snapshots[i].state != SnapState::Ready {
+                    let (name, oid) = (st.snapshots[i].database.clone(), st.snapshots[i].oid);
+                    drop_if_ours(client, &name, oid);
+                    let s = &mut st.snapshots[i];
+                    s.state = SnapState::Failed;
+                    s.generation = None;
+                    s.error = Some(e.message.clone());
+                }
+            }
+            SyncOutcome {
+                status: "failed",
+                generation: p.previous,
+                previous: p.previous,
+                message: format!(
+                    "main snapshot not refreshed: {}{}",
+                    e.message,
+                    match p.previous {
+                        Some(v) => format!(" (v{v} is still the baseline)"),
+                        None => String::new(),
+                    }
+                ),
+                pending: p.probe.pending.clone(),
+                method: String::new(),
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1000.0,
+                migrated: p.migrated,
+            }
+        }
+    };
+    settle(ctx, st, o)
 }
 
 /// What `resolve_head` found or made for the current worktree.
@@ -935,7 +1237,7 @@ pub fn resolve_head(
     create: Create,
     allow_sync: bool,
 ) -> Result<Resolution> {
-    for n in recover(client, st)? {
+    for n in recover(ctx, client, st)? {
         out.note(&format!("pgx git: {n}"));
     }
     let (role, branch) = match &repo.head {
@@ -1055,7 +1357,7 @@ pub fn resolve_head(
     // Lazy reconciliation: before cloning, make sure the baseline is current.
     let mut sync = None;
     if allow_sync && (cfg.auto_sync || st.current().is_none()) {
-        let o = sync_locked(out, ctx, client, repo, st, cfg, &SyncOpts::default())?;
+        let o = sync_auto(out, ctx, client, repo, st, cfg)?;
         sync = Some(o);
     }
     let snap = st.current().cloned().ok_or_else(|| {
@@ -1148,6 +1450,48 @@ pub fn resolve_head(
     })
 }
 
+/// Give the repository and this worktree durable identities (id files in
+/// the Git directory), so moving the repository or `git worktree move` keeps
+/// its databases. A copied repository (its id file names a repository whose
+/// recorded directory still exists elsewhere) gets a new identity instead of
+/// sharing the original's databases. Only called for repositories that use
+/// PGX Git: nothing is ever written into other repositories.
+pub fn ensure_identity(home: &Path, repo: &mut Repo) -> Result<()> {
+    use super::repo::{read_id, REPO_ID_FILE, WORKTREE_ID_FILE};
+    let write = |p: &Path, id: &str| -> Result<()> {
+        std::fs::write(p, format!("{id}\n")).map_err(|e| PgxError::io("cannot write", p, &e))
+    };
+    let rid_file = repo.common_dir.join(REPO_ID_FILE);
+    match read_id(&rid_file) {
+        None => write(&rid_file, &repo.repo_id)?,
+        Some(id) => {
+            if let Ok(Some(st)) = state::load(home, &id) {
+                let recorded = PathBuf::from(&st.common_dir);
+                let elsewhere = !st.common_dir.is_empty()
+                    && std::fs::canonicalize(&recorded).unwrap_or(recorded.clone())
+                        != repo.common_dir;
+                if elsewhere
+                    && read_id(&recorded.join(REPO_ID_FILE)).as_deref() == Some(id.as_str())
+                {
+                    // Both copies exist: this one is the copy.
+                    use crate::cmd::agent::identity::{fnv1a64, hex16};
+                    let fresh = hex16(fnv1a64(
+                        format!("{}|{}|{}", repo.common_dir.display(), now(), random_token())
+                            .as_bytes(),
+                    ));
+                    write(&rid_file, &fresh)?;
+                    repo.repo_id = fresh;
+                }
+            }
+        }
+    }
+    let wid_file = repo.git_dir.join(WORKTREE_ID_FILE);
+    if read_id(&wid_file).is_none() {
+        write(&wid_file, &repo.worktree_id)?;
+    }
+    Ok(())
+}
+
 /// Start (and if needed initialise) the runtime, the way `pgx agent setup` does.
 pub fn runtime(out: &Out, init_if_needed: bool) -> Result<Ctx> {
     let home = crate::layout::Home::resolve();
@@ -1178,8 +1522,11 @@ pub fn resolve_here(
     create: Create,
     lock_wait: Duration,
 ) -> Result<(Ctx, Repo, GitConfig, RepoState, Resolution)> {
-    let repo = require_repo(dir)?;
+    let mut repo = require_repo(dir)?;
     let (cfg, _file) = load_config(&repo)?;
+    if cfg.is_on() {
+        ensure_identity(&crate::layout::Home::resolve().root, &mut repo)?;
+    }
     if !cfg.is_on() {
         return Err(PgxError::new(
             ExitCode::NotReady,
@@ -1190,6 +1537,11 @@ pub fn resolve_here(
     let ctx = runtime(out, false)?;
     let _lock = state::lock(&ctx.home.root, &repo.repo_id, lock_wait)?;
     let mut st = require_state(&ctx, &repo)?;
+    // The repository moved (same identity, new place): follow it.
+    let here = repo.common_dir.to_string_lossy().into_owned();
+    if st.common_dir != here {
+        st.common_dir = here;
+    }
     let mut client = ctx.connect("postgres")?;
     let res = resolve_head(out, &ctx, &mut client, &repo, &mut st, &cfg, create, true);
     client.close();
@@ -1275,7 +1627,9 @@ pub struct AgentSource {
 /// works on. Same path as a checkout hook, so an agent that starts on a
 /// branch nobody checked out yet with hooks still gets a correct source.
 pub fn agent_source(out: &Out, g: &AgentGit) -> Result<AgentSource> {
-    let (_ctx, _repo, _cfg, st, res) = resolve_here(out, &g.dir, Create::Yes, LOCK_WAIT)?;
+    // State-lock holds are short now (no slow copy runs under it), so an
+    // agent never waits long; a genuinely stuck lock fails closed.
+    let (_ctx, _repo, _cfg, st, res) = resolve_here(out, &g.dir, Create::Yes, HOOK_LOCK_WAIT)?;
     Ok(AgentSource {
         database: names::validate(&res.db.database)?,
         snapshot: st.current().and_then(|s| names::validate(&s.database).ok()),

@@ -62,8 +62,80 @@ fn write_atomic(p: &Path, text: &str, keep_mode_of: Option<&Path>) -> Result<()>
     std::fs::rename(&tmp, p).map_err(|e| PgxError::io("cannot replace", p, &e))
 }
 
-pub fn install(repo: &Repo) -> Result<(Vec<HookReport>, Vec<HookRecord>)> {
+/// Where the effective hooks directory lives, which decides whether PGX may
+/// write into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HooksDir {
+    /// Inside this repository's Git directory: private to the repository.
+    Private(PathBuf),
+    /// Inside the work tree (`core.hooksPath = .husky/_`, `.githooks`):
+    /// owned by a hook manager or committed; its files get regenerated.
+    InWorktree(PathBuf),
+    /// Outside the repository (a global `core.hooksPath`): shared by every
+    /// repository on the machine.
+    Shared(PathBuf),
+}
+
+fn canon(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+pub fn classify(repo: &Repo) -> HooksDir {
     let dir = repo.hooks_dir();
+    // The directory may not exist yet: judge by its nearest existing parent.
+    let mut probe = dir.clone();
+    let mut tail = Vec::new();
+    while !probe.exists() {
+        match (probe.file_name().map(|n| n.to_os_string()), probe.parent()) {
+            (Some(n), Some(p)) => {
+                tail.push(n);
+                probe = p.to_path_buf();
+            }
+            _ => break,
+        }
+    }
+    let mut c = canon(&probe);
+    for n in tail.iter().rev() {
+        c.push(n);
+    }
+    if c.starts_with(&repo.common_dir) {
+        HooksDir::Private(dir)
+    } else if c.starts_with(&repo.toplevel) {
+        HooksDir::InWorktree(dir)
+    } else {
+        HooksDir::Shared(dir)
+    }
+}
+
+pub fn install(repo: &Repo) -> Result<(Vec<HookReport>, Vec<HookRecord>)> {
+    let dir = match classify(repo) {
+        HooksDir::Private(d) => d,
+        other => {
+            let (d, why) = match &other {
+                HooksDir::InWorktree(d) => (d.clone(), format!(
+                    "core.hooksPath points into the work tree ({}), which a hook manager or the repository owns (husky regenerates `.husky/_`); add this line to your own hook (for husky: `.husky/<hook>`)",
+                    d.display()
+                )),
+                HooksDir::Shared(d) => (d.clone(), format!(
+                    "core.hooksPath ({}) is shared by every repository on this machine, so PGX does not write there (uninstalling in one repository would remove it from all); add this line to the shared hook yourself (it is a no-op in repositories without PGX Git)",
+                    d.display()
+                )),
+                HooksDir::Private(_) => unreachable!(),
+            };
+            let reports = HOOKS
+                .iter()
+                .map(|name| HookReport {
+                    name: name.to_string(),
+                    path: d.join(name),
+                    action: "skipped".into(),
+                    detail: Some(format!(
+                        "{why}: pgx git hook {name} \"$@\" </dev/null || true"
+                    )),
+                })
+                .collect();
+            return Ok((reports, Vec::new()));
+        }
+    };
     std::fs::create_dir_all(&dir).map_err(|e| PgxError::io("cannot create", &dir, &e))?;
     let pgx = pgx_path();
     let mut reports = Vec::new();
@@ -199,7 +271,10 @@ pub fn install(repo: &Repo) -> Result<(Vec<HookReport>, Vec<HookRecord>)> {
 /// Remove exactly what PGX added: its block from shared hooks, its whole
 /// file only when the file is still nothing but PGX's block.
 pub fn uninstall(repo: &Repo) -> Result<Vec<HookReport>> {
-    let dir = repo.hooks_dir();
+    // Only ever this repository's own hooks directory (see `install`).
+    let HooksDir::Private(dir) = classify(repo) else {
+        return Ok(Vec::new());
+    };
     let mut reports = Vec::new();
     for name in HOOKS {
         let path = dir.join(name);

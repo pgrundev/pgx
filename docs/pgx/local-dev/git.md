@@ -70,35 +70,48 @@ extensions) or its **migration bookkeeping** (`schema_migrations`,
 `sync_mode = "data"` row counts count too. Fingerprinting is a handful of
 catalog queries (milliseconds); nothing is dumped when main is unchanged.
 
-It runs:
+It runs explicitly, on `pgx git sync` (works from any branch, never changes
+the branch you are on) and inside `pgx git init`, and automatically, from the
+`post-merge` hook when you `git pull` on main and right before a new branch
+database is cloned (so a new branch never starts from a stale baseline
+because you forgot to sync). No background service is involved.
 
-- on `pgx git sync` (explicit; works from any branch, never changes the
-  branch you are on);
-- from the `post-merge` hook when you `git pull` on main;
-- lazily, right before a new branch database is cloned (so a new branch never
-  starts from a stale baseline because you forgot to sync);
-- inside `pgx git init`.
+**Automatic snapshots are conservative.** They never wait and never take a
+slow copy: they keep the current baseline (and say why) when another snapshot
+is being taken, when main has connections (a migration or `db:reset` may be
+running), when main does not exist right now, or when migrations committed
+on main are not applied yet: a half-migrated main is never a baseline.
+Otherwise they clone the idle main, which takes about a quarter of a second.
+`pgx git sync` is the explicit path: it also snapshots a busy main, with a
+consistent logical copy.
 
-No background service is involved.
-
-Publishing is atomic and safe under concurrent hooks, agents and worktrees
-(one repository lock, a kernel `flock`, so a crashed process can never leave
-it held):
+Publishing is atomic and safe under concurrent hooks, agents and worktrees:
 
 1. copy main into a staging database: a copy-on-write clone when nobody is
-   connected to main, otherwise a consistent logical copy (`pg_dump` →
-   `pg_restore`, the `pgx copy` machinery) — PGX never terminates your
-   connections to take a snapshot and never physically copies a database in
-   use;
+   connected to main, otherwise (explicit sync only) a consistent logical
+   copy (`pg_dump` → `pg_restore`, the `pgx copy` machinery) — PGX never
+   terminates your connections to take a snapshot and never physically copies
+   a database in use;
 2. validate: the staged copy's fingerprints must equal main's;
 3. `VACUUM (FREEZE, ANALYZE)` so clones share pages;
-4. rename to the next generation, lock it read-only, record it.
+4. rename to the next generation, make it read-only (`ALLOW_CONNECTIONS
+   false`: a snapshot that cannot be locked is not published), record it.
+
+Two kernel locks (`flock`, so a crashed process never leaves one held)
+coordinate this. The **state lock** covers every change to PGX Git's state
+and every short database step (a clone, a rename); it is never held across a
+slow copy, so a checkout hook or an agent waits at most for a clone. The
+**sync lock** is held for a whole snapshot; the slow logical copy runs with
+only it held.
 
 If any step fails, the staging copy is dropped, the previous snapshot stays
 the baseline, branch databases are untouched, and `pgx git status` shows the
 failure. An interrupted sync (killed process, engine restart) is rolled back
-by the next PGX Git command. The previous snapshot is kept; older ones are
-*retired* and removed by `pgx git prune --apply`.
+by the next PGX Git command. Recovery does not rely on process ids (which
+are reused, especially in containers): a snapshot in progress is dead
+exactly when nobody holds the sync lock, and every other multi-step
+operation runs inside the state lock. The previous snapshot is kept; older
+ones are *retired* and removed by `pgx git prune --apply`.
 
 ### Git revision versus database state
 
@@ -237,6 +250,12 @@ worktree. A removed worktree's databases are only candidates for
 worktree that is merely missing for a while (an unmounted disk) is not
 removed.
 
+Identities survive moves: `pgx git init` writes a repository id
+(`.git/pgx-repo-id`) and each worktree's id (`pgx-worktree-id` in its Git
+directory). `mv`-ing the repository or `git worktree move` keeps every
+database mapping; a *copy* of the repository (its id names a repository that
+still exists elsewhere) gets a new id and databases of its own.
+
 A detached HEAD gets one database per worktree (`pgx_<repo>_detached_<hash>`);
 during `git rebase` the branch being rebased keeps its own database.
 
@@ -284,7 +303,22 @@ touch, grace and fail-closed behaviour are exactly those of `pgx agent`.
   ```
 
   A switch alone, a switch followed only by Git or other non-database
-  commands (`git push`, `echo`), and `git checkout -- <paths>` pass.
+  commands (`git push`, `echo`, output filters such as `| tail -5`),
+  redirections (`git switch x 2>&1`), `git checkout -- <paths>` and
+  `git checkout <file>` (asked from Git: a ref is a switch, a file is not)
+  pass; shell keywords and launchers (`if git switch x; then …`, `time`,
+  `env`, `!`) and Git's global options (`-C`, `--git-dir`) are seen through.
+  The same check runs inside `pgx agent exec` and `pgx git exec` for a
+  `<shell> -c '<script>'` command (exit 2, nothing runs), so Codex, Cursor
+  and scripts that use the wrappers get it too. A command this hook itself
+  rewrote is checked by what it runs, and only counts as rewritten when it
+  matches the rewrite exactly, for that session or subagent.
+- **Agents sharing a worktree share its HEAD.** When the branch changes under
+  an agent (it switched, or another agent or the developer did), that agent's
+  next command is stopped once with the reason before its database changes
+  (Claude Code); re-running it continues on a copy of the new branch's
+  database. Give parallel agents their own worktrees (`git worktree add`,
+  `claude --worktree`) to avoid this altogether.
 - `pgx git exec` and `pgx git env` inside an agent session return the
   session's own database, never the developer's.
 
@@ -332,8 +366,16 @@ honours `core.hooksPath`):
   an `exit 0` later in your script cannot skip it); your lines and the file's
   permissions are untouched, the block reads no stdin (Git feeds
   `post-rewrite` on stdin) and always succeeds;
-- a hook committed to the repository (`.husky/…`) or a symlink is left
-  alone, with the line to add by hand: `pgx git hook post-checkout "$@" </dev/null || true`.
+- a hook committed to the repository, a symlink, or a script in another
+  language (Ruby, Python, Node) is left alone, with the line to add by hand:
+  `pgx git hook post-checkout "$@" </dev/null || true`;
+- PGX only writes into the repository's own hooks directory. A
+  `core.hooksPath` outside the repository (shared by every repository on the
+  machine) or inside the work tree (husky's generated `.husky/_`, a committed
+  `.githooks/`) is left alone with the same line to add yourself (to
+  `.husky/<hook>` for husky; in a shared directory the line is a no-op for
+  repositories without PGX Git). `pgx git uninstall` likewise never touches
+  such a directory.
 
 The block runs `pgx git hook <name> "$@"` (Git's arguments as data; nothing
 from the repository is evaluated) and never blocks Git: if PGX is missing,
@@ -400,16 +442,16 @@ alone. The branch name itself is kept as metadata.
   connections, and says so.
 - Pending-migration detection knows the layouts listed above; other tools
   still get schema-fingerprint change detection.
-- A PGX process killed while a hook is waiting on the repository lock just
-  exits; Git is never blocked for more than the hook's lock wait (60 s).
-- Moving a repository's directory changes its identity (its `.git` path), so
-  it starts with fresh mappings; the old databases stay until pruned by hand.
+- Hooks and agents wait at most 60 s for the state lock (in practice a
+  clone); Git is never blocked longer.
 - A running server is not reconfigured on `git switch`; restart it.
 - The same-command guard reads the command text: a branch switch hidden in
-  a script (`./switch-and-migrate.sh`) or behind a variable is not seen, and
-  it applies to Claude Code (whose hook can refuse a command). Cursor's
-  terminal environment is set at session start and Codex commands run
-  through `pgx agent exec`: after switching branches there, run database
-  commands as their own `pgx git exec -- …` call.
+  a script (`./switch-and-migrate.sh`) or behind a variable is not seen.
+- Cursor's terminal environment is set at session start and PGX's Cursor
+  hooks deliberately stay off permission events, so a raw terminal command
+  in Cursor after a branch switch still uses the session's first database:
+  in PGX Git repositories, run database commands in Cursor as
+  `pgx git exec -- …` (which re-resolves and carries the guard). Codex runs
+  commands through `pgx agent exec`, which re-resolves every time.
 - `PGX_GIT_FAILPOINT` (fault injection for the failure tests) exists only in
   builds made with `--features failpoints`; release builds ignore it.

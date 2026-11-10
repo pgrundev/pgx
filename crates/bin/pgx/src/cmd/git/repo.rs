@@ -137,15 +137,32 @@ pub fn discover(dir: &Path) -> Result<Option<Repo>> {
     });
     let head = read_head(&toplevel)?;
     let linked = git_dir != common_dir;
+    // Stable identities, written by PGX Git into the Git directory (see
+    // `core::ensure_identity`), survive moving the repository and
+    // `git worktree move`; without them, the canonical paths.
+    let repo_id = read_id(&common_dir.join(REPO_ID_FILE))
+        .unwrap_or_else(|| hex16(fnv1a64(common_dir.to_string_lossy().as_bytes())));
+    let worktree_id = read_id(&git_dir.join(WORKTREE_ID_FILE))
+        .unwrap_or_else(|| hex16(fnv1a64(toplevel.to_string_lossy().as_bytes())));
     Ok(Some(Repo {
-        repo_id: hex16(fnv1a64(common_dir.to_string_lossy().as_bytes())),
-        worktree_id: hex16(fnv1a64(toplevel.to_string_lossy().as_bytes())),
+        repo_id,
+        worktree_id,
         toplevel,
         git_dir,
         common_dir,
         head,
         linked,
     }))
+}
+
+pub const REPO_ID_FILE: &str = "pgx-repo-id";
+pub const WORKTREE_ID_FILE: &str = "pgx-worktree-id";
+
+/// A 16-hex id from one of PGX Git's id files.
+pub fn read_id(p: &Path) -> Option<String> {
+    let s = std::fs::read_to_string(p).ok()?;
+    let s = s.trim();
+    (s.len() == 16 && s.bytes().all(|b| b.is_ascii_hexdigit())).then(|| s.to_ascii_lowercase())
 }
 
 fn read_head(dir: &Path) -> Result<Head> {
@@ -272,6 +289,30 @@ impl Repo {
             Some(1) => Some(false),
             _ => None,
         }
+    }
+
+    /// The identities of every worktree that exists right now (a listed but
+    /// missing one, e.g. on an unmounted disk, is not counted as gone: it is
+    /// simply absent from the answer), or `None` when Git failed.
+    pub fn live_worktree_ids(&self) -> Option<Vec<(String, Option<String>)>> {
+        let mut out = Vec::new();
+        for (p, branch) in self.worktrees_checked()? {
+            if !p.exists() {
+                continue;
+            }
+            let r = discover(&p).ok()??;
+            out.push((r.worktree_id, branch));
+        }
+        Some(out)
+    }
+
+    /// Paths of listed worktrees that are missing from disk right now.
+    pub fn missing_worktrees(&self) -> Vec<PathBuf> {
+        self.worktrees()
+            .into_iter()
+            .map(|(p, _)| p)
+            .filter(|p| !p.exists())
+            .collect()
     }
 
     /// Every worktree, or `None` when `git worktree list` failed.

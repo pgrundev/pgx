@@ -137,6 +137,18 @@ pub struct HookRecord {
     pub mode: String,
 }
 
+/// A `pgx git reset` in progress: the branch database `target` is moved
+/// aside to `old` and replaced by `fresh`. Recorded before the first step so
+/// an interrupted reset is finished or undone, never leaked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResetIntent {
+    pub target: String,
+    pub old: String,
+    pub old_oid: u64,
+    pub fresh: String,
+    pub fresh_oid: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RepoState {
     pub repo_id: String,
@@ -153,6 +165,7 @@ pub struct RepoState {
     pub approved_migrate_command: Option<String>,
     pub cluster_id: String,
     pub initialized_at: u64,
+    pub reset: Option<ResetIntent>,
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -283,6 +296,7 @@ impl RepoState {
             "hooks": self.hooks.iter().map(|h| json!({"name": h.name, "path": h.path, "mode": h.mode})).collect::<Vec<_>>(),
             "approved_migrate_command": self.approved_migrate_command,
             "cluster_id": self.cluster_id, "initialized_at": self.initialized_at,
+            "reset": self.reset.as_ref().map(|r| json!({"target": r.target, "old": r.old, "old_oid": r.old_oid, "fresh": r.fresh, "fresh_oid": r.fresh_oid})),
         })
     }
 
@@ -325,6 +339,16 @@ impl RepoState {
             approved_migrate_command: os(&v, "approved_migrate_command"),
             cluster_id: s(&v, "cluster_id"),
             initialized_at: u(&v, "initialized_at"),
+            reset: v
+                .get("reset")
+                .filter(|r| r.is_object())
+                .map(|r| ResetIntent {
+                    target: s(r, "target"),
+                    old: s(r, "old"),
+                    old_oid: u(r, "old_oid"),
+                    fresh: s(r, "fresh"),
+                    fresh_oid: r.get("fresh_oid").and_then(Value::as_u64),
+                }),
         })
     }
 
@@ -418,47 +442,95 @@ pub fn save(home: &Path, st: &RepoState) -> Result<()> {
     std::fs::rename(&tmp, &p).map_err(|e| PgxError::io("cannot replace", &p, &e))
 }
 
-/// The repository lock. Released when dropped (or when the process dies).
+/// A held repository lock. Released when dropped (or when the process dies).
 pub struct Lock(#[allow(dead_code)] std::fs::File);
 
-/// Take the repository lock, waiting up to `wait`. Hooks pass a short wait
-/// and degrade (Git must never hang on PGX); commands wait longer.
-pub fn lock(home: &Path, repo_id: &str, wait: Duration) -> Result<Lock> {
+fn open_lock(home: &Path, repo_id: &str, name: &str) -> Result<(std::fs::File, PathBuf)> {
     let d = dir(home, repo_id);
     private_dir(&root(home))?;
     private_dir(&d)?;
-    let p = d.join("lock");
+    let p = d.join(name);
     let file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
         .open(&p)
         .map_err(|e| PgxError::io("cannot open", &p, &e))?;
+    Ok((file, p))
+}
+
+/// One non-blocking attempt: `Ok(None)` when somebody else holds it.
+fn try_flock(file: &std::fs::File, p: &Path) -> Result<bool> {
+    // SAFETY: flock on a descriptor we own.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(true);
+    }
+    let err = std::io::Error::last_os_error();
+    if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
+        return Err(PgxError::failure(format!(
+            "cannot lock {}: {err}",
+            p.display()
+        )));
+    }
+    Ok(false)
+}
+
+fn lock_named(home: &Path, repo_id: &str, name: &str, wait: Duration, what: &str) -> Result<Lock> {
+    let (file, p) = open_lock(home, repo_id, name)?;
     let deadline = Instant::now() + wait;
     loop {
-        // SAFETY: flock on a descriptor we own.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        if try_flock(&file, &p)? {
             return Ok(Lock(file));
-        }
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() != Some(libc::EWOULDBLOCK) {
-            return Err(PgxError::failure(format!(
-                "cannot lock {}: {err}",
-                p.display()
-            )));
         }
         if Instant::now() >= deadline {
             return Err(PgxError::new(
                 ExitCode::InUse,
-                format!(
-                    "another PGX Git operation on this repository is still running (waited {}s)",
-                    wait.as_secs()
-                ),
+                format!("{what} (waited {}s)", wait.as_secs()),
             )
-            .hint("it finishes on its own (a main snapshot can take a while); retry, or see `pgx git status`"));
+            .hint("it finishes on its own; retry, or see `pgx git status`"));
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// The state lock: every read-modify-write of `state.json` and every short
+/// database step (a clone, a rename, a drop) happens under it. It is never
+/// held across a slow copy, so hooks and agents only ever wait briefly.
+pub fn lock(home: &Path, repo_id: &str, wait: Duration) -> Result<Lock> {
+    lock_named(
+        home,
+        repo_id,
+        "lock",
+        wait,
+        "another PGX Git operation on this repository is still running",
+    )
+}
+
+/// The sync lock: held for the whole of one snapshot (staging, copy,
+/// validation, publication). Taken *before* the state lock, never after.
+pub fn sync_lock(home: &Path, repo_id: &str, wait: Duration) -> Result<Lock> {
+    lock_named(
+        home,
+        repo_id,
+        "sync.lock",
+        wait,
+        "another main snapshot of this repository is being taken",
+    )
+}
+
+/// The sync lock if it is free right now, else `None` (automatic syncs skip
+/// instead of waiting).
+pub fn try_sync_lock(home: &Path, repo_id: &str) -> Result<Option<Lock>> {
+    let (file, p) = open_lock(home, repo_id, "sync.lock")?;
+    Ok(try_flock(&file, &p)?.then_some(Lock(file)))
+}
+
+/// Is a snapshot being taken by a live process? Under the state lock this
+/// is the whole truth for crash recovery: with the sync lock free, any
+/// in-progress snapshot record belongs to a process that is gone (the kernel
+/// released its lock), whatever its pid is now used for.
+pub fn sync_running(home: &Path, repo_id: &str) -> Result<bool> {
+    Ok(try_sync_lock(home, repo_id)?.is_none())
 }
 
 #[cfg(test)]
@@ -568,6 +640,13 @@ mod tests {
             approved_migrate_command: None,
             cluster_id: "c".into(),
             initialized_at: 1,
+            reset: Some(ResetIntent {
+                target: "t".into(),
+                old: "o".into(),
+                old_oid: 3,
+                fresh: "f".into(),
+                fresh_oid: None,
+            }),
         }
     }
 

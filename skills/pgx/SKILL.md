@@ -14,7 +14,7 @@ description: >
 license: AGPL-3.0
 metadata:
   author: pgrundev
-  version: "0.1.2"
+  version: "0.1.3"
   homepage: https://pgx.dev
   repository: https://github.com/pgrundev/pgx
 ---

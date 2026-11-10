@@ -15,6 +15,12 @@ and a project still needs a one-time `pgx agent setup` before its sessions
 are isolated. Both steps are walked through by the skill the first time you
 use it in a project.
 
+In a repository that uses [PGX Git](https://github.com/pgrundev/pgx/blob/main/docs/pgx/local-dev/git.md)
+(`pgx git init`: one database per Git branch and worktree), each session's
+branch is cloned from the database of the Git branch it works on, and a
+session that switches Git branches is moved to a branch of the new one
+automatically.
+
 ## Install inside Claude Code
 
 The lightweight plugin repository, `pgrundev/pgx-plugin`, holds only this

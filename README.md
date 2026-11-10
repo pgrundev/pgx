@@ -388,6 +388,27 @@ differences: [`agents.md`](docs/pgx/local-dev/agents.md),
 [`claude-plugin.md`](docs/pgx/local-dev/claude-plugin.md); the Skill
 itself: [`skills/pgx/SKILL.md`](skills/pgx/SKILL.md).
 
+### One Git branch, one isolated Postgres
+
+```bash
+cd my-project
+pgx git init                      # main database, first main snapshot, Git hooks
+git switch -c feature/auth        # ✓ PGX database ready: feature/auth (cloned from main in ~40 ms)
+pgx git exec -- bin/rails db:migrate
+git switch main                   # main's database again; feature/auth keeps its migrations
+pgx git sync                      # publish main's new schema as the next immutable snapshot
+git switch -c feature/billing     # starts from the latest validated main snapshot
+pgx git status
+```
+
+Plain `git switch` stays plain Git: the hooks create or reuse the branch's
+copy-on-write database, worktrees get their own, main updates never replace
+an existing branch database, and every AI agent session on a branch still
+gets a private copy of that branch's database. A hook cannot change your
+shell's environment, so commands run with `pgx git exec -- …`, or
+`pgx git install-shell` refreshes `DATABASE_URL` at every prompt. Details:
+[`git.md`](docs/pgx/local-dev/git.md).
+
 ### Keep your Postgres, branch it in PGX (by hand)
 
 The same thing without an agent. Copy PostgreSQL into PGX once, then give
@@ -425,6 +446,7 @@ Details, limitations and measurements: [`copy.md`](docs/pgx/local-dev/copy.md).
 | [`local-dev/build-from-source.md`](docs/pgx/local-dev/build-from-source.md) | build the engine, run a bare runtime, seal a template and mint databases by hand |
 | [`local-dev/claude-plugin.md`](docs/pgx/local-dev/claude-plugin.md) | the PGX plugin for Claude Code and the lightweight `pgrundev/pgx-plugin` repository |
 | [`local-dev/agents.md`](docs/pgx/local-dev/agents.md) | the PGX Skill and `pgx agent`: automatic per-session isolation for Claude Code, Cursor and Codex |
+| [`local-dev/git.md`](docs/pgx/local-dev/git.md) | PGX Git: one database per Git branch and worktree, main snapshots, shell integration, agents |
 | [`local-dev/copy.md`](docs/pgx/local-dev/copy.md) | `pgx copy`: import an existing PostgreSQL database and branch it per agent |
 | [`pgrun-integration.md`](docs/pgx/pgrun-integration.md) | the host-agent API PGRun builds against |
 | [`lifecycle-memory.md`](docs/pgx/lifecycle-memory.md), [`linux-churn.md`](docs/pgx/linux-churn.md) | memory under long churn, and what was fixed |

@@ -71,6 +71,24 @@ pub fn run(out: &Out, opts: ExecOpts) -> Result<ExitCode> {
         cwd: opts.cwd.clone(),
         ..Default::default()
     })?;
+    // PGX Git, any host: a shell script that switches branches and then
+    // keeps going would run on the previous branch's database. Refuse it
+    // before anything runs (Claude Code's hook refuses it earlier too).
+    if r.git.is_some() {
+        if let Some(script) = crate::cmd::git::guard::shell_script(&opts.command) {
+            let dir = opts
+                .cwd
+                .clone()
+                .map(Ok)
+                .unwrap_or_else(std::env::current_dir)
+                .unwrap_or_default();
+            if let Some(reason) = crate::cmd::git::guard::check(script, &dir) {
+                return Err(PgxError::usage(format!(
+                    "PGX refused the command: {reason}"
+                )));
+            }
+        }
+    }
     let started = Instant::now();
     let res = session::up(&out.quiet(), &r)?;
     let provision_ms = started.elapsed().as_secs_f64() * 1000.0;

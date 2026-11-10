@@ -94,6 +94,12 @@ jobs:
           cargo test -p pgx --release --test lifecycle --test databases --test clone --test branch --test doctor --test run --test ttl --test copy
       - name: Agent lifecycle suites (pgx agent up/hook/exec/install)
         run: cargo test -p pgx --release --test agent --test agent_hook --test agent_exec --test agent_install
+      - name: PGX Git suite (real Git repositories, hooks, worktrees, agents)
+        run: |
+          # With fault injection (failed/interrupted snapshot scenarios)...
+          cargo test -p pgx --release --features failpoints --test git -- --nocapture
+          # ...and the release configuration, which must not contain it.
+          cargo test -p pgx --release --test git -- --nocapture
       - name: Skill end-to-end (real PGX, real PostgreSQL, skills CLI)
         run: PGX_BIN=target/release/pgx PG_BINDIR="$PG18_BINDIR" skills/tests/pgx/e2e.sh
       - name: Installer end-to-end

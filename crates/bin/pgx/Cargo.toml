@@ -9,6 +9,11 @@ description = "PGX command-line interface: a local, disposable, PostgreSQL-compa
 name = "pgx"
 path = "src/main.rs"
 
+[features]
+# Test-only fault injection for PGX Git (`PGX_GIT_FAILPOINT`). Off in every
+# release build; `cargo test -p pgx --features failpoints --test git` uses it.
+failpoints = []
+
 [dependencies]
 libc = "0.2"
 serde_json = { version = "1", features = ["preserve_order"] }

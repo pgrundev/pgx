@@ -81,14 +81,41 @@ release through the repository's staged publishing process.
   primitives `up`, `touch`, `down`, `env`, `hook`, `install`, `uninstall`.
   Everything takes `--json`.
 - **`.pgx.toml`** in the project root, written by `setup`, safe to commit:
-  `source`, `idle_ttl`, `grace_period`. Names and durations only; URLs are
-  rejected. PGX is one runtime per user, so the project is part of a
+  `source`, `idle_ttl`, `grace_period` in `[agent]` (and the `[git]` tables
+  `pgx git init` adds, see [git.md](git.md#configuration-pgxtoml)). Names and
+  durations only; URLs are rejected. PGX is one runtime per user, so the project is part of a
   session's identity and two projects can both call their template `app`.
 - **Hook files**, merged into `.claude/settings.json`, `.cursor/hooks.json`,
   `.codex/hooks.json` (or the `--scope local`/`user` equivalents). The
   command is guarded (`command -v pgx … || exit 0`), so a committed hook is a
   silent no-op for a teammate without PGX. Existing entries are never
   touched; `pgx agent uninstall` removes only ours.
+
+## With PGX Git
+
+When the repository uses [PGX Git](git.md) (`[git]` in `.pgx.toml`,
+`[git.agents] enabled = true` by default), a session's branch is cloned from
+the database of **the Git branch checked out where the session runs**, not
+from the `[agent] source`. Each session and each subagent still gets its own
+branch, so agents on the same Git branch never share mutable state and none
+of them touches the developer's branch database:
+
+```text
+feature/auth ─ pgx_myapp_auth_…  (developer)
+                 ├─ agent-claude-<A>     ├─ agent-claude-<B>
+                 ├─ agent-codex-<C>      └─ agent-claude-<A>-<subagent>
+```
+
+- The session identity gains the worktree and Git branch: switching Git
+  branches gives the session a separate branch of the new Git branch's
+  database (Claude Code's Bash commands are rerouted to it automatically);
+  `SessionEnd`/`pgx agent down` ends all of them.
+- A branch database with connections (your dev server) is copied logically
+  (`pg_dump`), never terminated; on main the agent branches from the latest
+  validated main snapshot instead.
+- `pgx git exec`/`pgx git env` inside a session return the session's
+  branch. An explicit `--source`/`PGX_SOURCE` still wins.
+- Without `[git]`, nothing here changes.
 
 ## Manual use
 

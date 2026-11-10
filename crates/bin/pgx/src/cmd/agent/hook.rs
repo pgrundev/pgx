@@ -38,7 +38,54 @@ pub fn is_routed(command: &str) -> bool {
         .lines()
         .last()
         .is_some_and(|l| l.contains(ROUTED_MARK))
-        && command.contains(" agent exec --agent ")
+        && (command.contains(" agent exec --agent ") || command.contains(" agent exec --cwd "))
+}
+
+/// PGX Git: the branch a Claude Code session's environment file exported at
+/// `SessionStart`. When the session later switches Git branches, its Bash
+/// commands are routed to the branch for the new Git branch instead.
+fn exported_path(home: &Home, key: &super::identity::SessionKey) -> std::path::PathBuf {
+    let mut k = key.clone();
+    k.scope = None;
+    home.root
+        .join("agent")
+        .join("exported")
+        .join(super::identity::hex16(super::identity::fnv1a64(
+            k.material().as_bytes(),
+        )))
+}
+
+fn write_exported(home: &Home, key: &super::identity::SessionKey, branch: &str) {
+    let p = exported_path(home, key);
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(&p, branch);
+}
+
+fn read_exported(home: &Home, key: &super::identity::SessionKey) -> Option<String> {
+    std::fs::read_to_string(exported_path(home, key))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// The parent session's form of [`routed_command`]: no `--agent`, the
+/// session id comes from the environment Claude Code gives its commands.
+pub fn routed_parent_command(
+    pgx: &Path,
+    shell: &Path,
+    cwd: &Path,
+    branch: &str,
+    original: &str,
+) -> String {
+    format!(
+        "{} agent exec --cwd {} -- {} -c {} {ROUTED_MARK} {branch}",
+        shell_word(&pgx.to_string_lossy()),
+        shell_word(&cwd.to_string_lossy()),
+        shell_word(&shell.to_string_lossy()),
+        sq(original)
+    )
 }
 
 /// Where every hook delivery leaves one line: `$PGX_HOME/agent/hooks.log`.
@@ -433,6 +480,80 @@ fn tool_use(
     r: &Resolved,
 ) -> ExitCode {
     let bash = input.tool_name.as_deref() == Some("Bash");
+    // PGX Git: a command that switches branches and then keeps going would
+    // run its database work with the previous branch's environment. Refuse
+    // it before it runs (parent and subagents alike), with the fix.
+    if bash && r.git.is_some() && input.host == Host::Claude {
+        let command = input
+            .tool_input
+            .as_ref()
+            .and_then(|t| t.get("command"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if !is_routed(command) {
+            let cwd = input.cwd.clone().unwrap_or_else(|| r.project.root.clone());
+            if let Some(reason) = crate::cmd::git::guard::check(command, &cwd) {
+                println!("{}", deny_json(&reason));
+                audit(
+                    home,
+                    input,
+                    "denied: branch switch followed by more commands",
+                );
+                return ExitCode::Ok;
+            }
+        }
+    }
+    if input.agent_id.is_none()
+        && bash
+        && input.agent_id_error.is_none()
+        && r.git.is_some()
+        && input.host == Host::Claude
+    {
+        // PGX Git: the session's exported environment names the branch for
+        // the Git branch it started on. After a `git switch` its commands
+        // must reach the branch for the new Git branch.
+        let command = input
+            .tool_input
+            .as_ref()
+            .and_then(|t| t.get("command"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if let (Some(exported), false) = (
+            read_exported(home, &r.key),
+            command.trim().is_empty() || is_routed(command),
+        ) {
+            match session::up(&out.quiet(), r) {
+                Ok(res) if res.branch.as_str() != exported => {
+                    let cwd = input.cwd.clone().unwrap_or_else(|| r.project.root.clone());
+                    let routed = routed_parent_command(
+                        &pgx_invocation(env),
+                        &user_shell(env),
+                        &cwd,
+                        res.branch.as_str(),
+                        command,
+                    );
+                    println!(
+                        "{}",
+                        routed_json(input.tool_input.as_ref().unwrap(), routed)
+                    );
+                    audit(
+                        home,
+                        input,
+                        &format!("git branch changed: routed to {}", res.branch),
+                    );
+                    return ExitCode::Ok;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let reason = reason_of(&e);
+                    println!("{}", deny_json(&reason));
+                    audit(home, input, &format!("denied: {reason}"));
+                    return ExitCode::Ok;
+                }
+            }
+            return ExitCode::Ok;
+        }
+    }
     if input.agent_id.is_none() {
         if bash && input.agent_id_error.is_some() && r.isolation_enabled() {
             let why = format!(
@@ -566,6 +687,9 @@ pub fn run(out: &Out, opts: HookOpts) -> Result<ExitCode> {
     match input.event {
         Event::Start => match session::up(&out.quiet(), &r) {
             Ok(res) => {
+                if r.git.is_some() && input.host == Host::Claude {
+                    write_exported(&home, &r.key, res.branch.as_str());
+                }
                 emit_start(input.host, &env, &res);
                 audit(&home, &input, &format!("session branch {}", res.branch));
                 Ok(ExitCode::Ok)

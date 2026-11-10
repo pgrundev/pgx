@@ -2,6 +2,7 @@ pub mod agent;
 pub mod copy;
 pub mod db;
 pub mod doctor;
+pub mod git;
 pub mod init;
 pub mod run;
 pub mod start;

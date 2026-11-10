@@ -31,6 +31,11 @@ pub struct SessionKey {
     pub project_id: String,
     /// `None` for the host session itself (the parent agent).
     pub agent_id: Option<String>,
+    /// PGX Git: the worktree + Git branch the session works on (a hash).
+    /// `None` outside PGX Git, so every pre-existing key is unchanged. A
+    /// session that switches Git branches gets a separate branch per Git
+    /// branch, each cloned from that Git branch's database.
+    pub scope: Option<String>,
 }
 
 impl SessionKey {
@@ -38,13 +43,18 @@ impl SessionKey {
     /// exactly what it was before subagents existed (lock files and long
     /// names stay stable across upgrades).
     pub fn material(&self) -> String {
-        match &self.agent_id {
+        let mut m = match &self.agent_id {
             None => format!("{}|{}|{}", self.project_id, self.host, self.session_id),
             Some(a) => format!(
                 "{}|{}|{}|agent:{}",
                 self.project_id, self.host, self.session_id, a
             ),
+        };
+        if let Some(s) = &self.scope {
+            m.push_str("|git:");
+            m.push_str(s);
         }
+        m
     }
 
     /// `claude session 9b1f…` or `claude session 9b1f… agent abc1…`, for messages.
@@ -170,6 +180,7 @@ mod tests {
             session_id: sid.to_string(),
             project_id: "a1b2c3d4e5f60718".to_string(),
             agent_id: None,
+            scope: None,
         }
     }
 
@@ -221,10 +232,28 @@ mod tests {
             session_id: "s".repeat(128),
             project_id: "f".repeat(16),
             agent_id: Some("a".repeat(128)),
+            scope: Some("f".repeat(16)),
         };
         let n = branch_name(&k, true);
         assert!(n.len() <= 63, "{n} is {} bytes", n.len());
         assert!(crate::names::validate(&n).is_ok(), "{n}");
+    }
+
+    #[test]
+    fn a_git_scope_gives_a_distinct_identity_and_none_keeps_the_old_one() {
+        let sid = "f775e29e-e738-4f37-93b4-9b82f539ba81";
+        let plain = key("claude", sid);
+        let mut a = key("claude", sid);
+        a.scope = Some("1111111111111111".into());
+        let mut b = key("claude", sid);
+        b.scope = Some("2222222222222222".into());
+        assert_eq!(
+            plain.material(),
+            "a1b2c3d4e5f60718|claude|".to_string() + sid
+        );
+        assert_ne!(a.material(), plain.material());
+        assert_ne!(branch_name(&a, true), branch_name(&b, true));
+        assert_eq!(branch_name(&a, false), branch_name(&plain, false));
     }
 
     #[test]

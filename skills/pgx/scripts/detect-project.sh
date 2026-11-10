@@ -85,9 +85,10 @@ if command -v pgx >/dev/null 2>&1; then
   pgx_port=$(pgx --json status 2>/dev/null | sed -nE 's/.*"port":([0-9]+).*/\1/p')
 fi
 if [ "$classification" = local ] && [ -n "$pgx_port" ] && [ "$port" = "$pgx_port" ]; then classification=pgx; fi
-toml=false; d=$PWD; while [ "$d" != / ]; do [ -f "$d/.pgx.toml" ] && { toml=true; break; }; d=$(dirname "$d"); done
+toml=false; git_toml=false; d=$PWD; while [ "$d" != / ]; do [ -f "$d/.pgx.toml" ] && { toml=true; grep -qE '^[[:space:]]*\[git\][[:space:]]*(#.*)?$' "$d/.pgx.toml" && git_toml=true; break; }; d=$(dirname "$d"); done
+git_repo=false; command -v git >/dev/null 2>&1 && git rev-parse --show-toplevel >/dev/null 2>&1 && git_repo=true
 hook() { [ -f "$1" ] && grep -q 'pgx agent hook' "$1" 2>/dev/null && echo true || echo false; }
 
-printf '{"framework":"%s","signals":[%s],"database_config":{"files":[%s],"url_sources":[%s],"classification":"%s","host":"%s","port":"%s","db":"%s"},"migrations":"%s","pgx":{"installed":%s,"version":%s,"toml":%s,"hooks":{"claude":%s,"cursor":%s,"codex":%s}}}\n' \
+printf '{"framework":"%s","signals":[%s],"database_config":{"files":[%s],"url_sources":[%s],"classification":"%s","host":"%s","port":"%s","db":"%s"},"migrations":"%s","pgx":{"installed":%s,"version":%s,"toml":%s,"hooks":{"claude":%s,"cursor":%s,"codex":%s}},"git":{"repository":%s,"pgx_git":%s}}\n' \
   "$framework" "${signals%,}" "${files%,}" "${url_sources%,}" "$classification" "$(esc "$host")" "$(esc "$port")" "$(esc "$db")" "$migrations" \
-  "$pgx_installed" "$pgx_version" "$toml" "$(hook .claude/settings.json)" "$(hook .cursor/hooks.json)" "$(hook .codex/hooks.json)"
+  "$pgx_installed" "$pgx_version" "$toml" "$(hook .claude/settings.json)" "$(hook .cursor/hooks.json)" "$(hook .codex/hooks.json)" "$git_repo" "$git_toml"

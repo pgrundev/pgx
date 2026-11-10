@@ -94,6 +94,8 @@ pub enum Command {
     Copy(crate::cmd::copy::Opts),
     /// `pgx agent …`: one isolated database per coding-agent session.
     Agent(crate::cmd::agent::AgentCmd),
+    /// `pgx git …`: one isolated database per Git branch.
+    Git(crate::cmd::git::GitCmd),
     Doctor,
     /// Hidden: the background TTL cleanup worker, spawned by start/run/serve.
     Supervise,
@@ -128,6 +130,9 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
     };
     if name == "agent" {
         return Ok((global, Command::Agent(crate::cmd::agent::parse(tail)?)));
+    }
+    if name == "git" {
+        return Ok((global, Command::Git(crate::cmd::git::parse_args(tail)?)));
     }
     let mut positional: Vec<&str> = Vec::new();
     let mut flags: Vec<(&str, Option<&str>)> = Vec::new();
@@ -402,6 +407,24 @@ Agents (one isolated database per coding-agent session)
   pgx agent ls            agent branches: host, session, agent, source, expires-in
   pgx agent up|touch|down|env|hook|install|uninstall
                           lifecycle primitives (see docs/pgx/local-dev/agents.md)
+
+Git (one Git branch, one isolated database, automatically)
+  pgx git init [--source <db|postgres-url>] [--main <branch>] [--schema-only|--with-data] [--no-hooks]
+                          set up the repository: main database, first main snapshot,
+                          post-checkout/post-merge/post-rewrite hooks (safe to rerun)
+  pgx git status          branch, database, main snapshot vs branch baseline, sync state
+  pgx git ls              Git-managed databases: branch, database, base, status
+  pgx git sync [--force] [--migrate]
+                          refresh the immutable main snapshot when main changed
+  pgx git env [--shell bash|zsh|fish] [--reveal]
+                          connection variables for the current branch (password masked unless --shell or --reveal)
+  pgx git exec -- <command> [args…]
+                          run a command with the current branch's database
+  pgx git reset --from-main [--force]
+                          recreate this branch's database from the latest main snapshot
+  pgx git prune [--apply] [--grace <dur>]
+                          abandoned branch databases (dry run unless --apply)
+  pgx git doctor | uninstall [--shell] | shell <sh> | install-shell [<sh>]
 
 Tools
   pgx doctor              check the installation, data directory, port, storage

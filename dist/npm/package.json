@@ -1,6 +1,6 @@
 {
   "name": "pgxdb",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "PGX: a local, disposable, PostgreSQL-compatible runtime. `npx pgxdb` installs the native binary and starts a database.",
   "license": "AGPL-3.0",
   "repository": {

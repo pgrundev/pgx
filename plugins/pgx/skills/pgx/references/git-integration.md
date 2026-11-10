@@ -11,6 +11,12 @@ feature/auth ─ pgx_<repo>_auth_<hash>      the developer's branch database
                  └─ agent-codex-…           another session
 ```
 
+## Version
+
+`pgx git` needs **PGX 0.1.3 or newer**. On 0.1.2 `pgx git` is an unknown
+command (exit 2); the agent features (`pgx agent …`) still work there, so
+only offer PGX Git after `pgx --json version` reports 0.1.3 or newer.
+
 ## Detect
 
 - `detect-project.sh`: `git.repository` (inside a Git work tree) and

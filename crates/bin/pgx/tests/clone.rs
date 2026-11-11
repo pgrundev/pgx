@@ -230,6 +230,36 @@ fn concurrent_clones_8() {
     assert_eq!(j.as_array().unwrap().len(), 1 + 1 + 8, "{j}");
 }
 
+/// Racing clones to one name: one wins, every loser is a clean conflict
+/// (exit 4) — never a generic failure — so callers can fall back to another
+/// name (the agent session path does exactly that).
+#[test]
+fn concurrent_clones_to_one_name_lose_with_exit_4() {
+    let p = up_with_source();
+    for round in 0..5 {
+        let name = format!("same{round}");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let mut c = p.cmd(&["clone", "src", &name]);
+                std::thread::spawn(move || {
+                    common::Run::from(common::output_locked(&mut c).unwrap())
+                })
+            })
+            .collect();
+        let runs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let won = runs.iter().filter(|r| r.code == 0).count();
+        assert_eq!(won, 1, "round {round}: exactly one clone must win");
+        for r in runs.iter().filter(|r| r.code != 0) {
+            assert_eq!(
+                r.code,
+                4,
+                "round {round}: a lost race must be exit 4: {}",
+                r.all()
+            );
+        }
+    }
+}
+
 #[test]
 fn clone_then_drop_cycles_leave_no_files() {
     let p = up_with_source();

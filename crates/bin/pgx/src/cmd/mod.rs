@@ -99,6 +99,10 @@ pub fn db_error(e: crate::pgwire::WireError, context: &str) -> PgxError {
             let code = match d.sqlstate.as_str() {
                 "3D000" => ExitCode::NotFound,
                 "42P04" => ExitCode::Conflict,
+                // Two CREATE DATABASE racing for one name: the loser can fail
+                // on the catalog's unique index instead of with 42P04. Same
+                // meaning — the name is taken — so callers' fallbacks apply.
+                "23505" if d.message.contains("pg_database_datname_index") => ExitCode::Conflict,
                 "55006" => ExitCode::InUse,
                 _ => ExitCode::Failure,
             };
@@ -109,5 +113,52 @@ pub fn db_error(e: crate::pgwire::WireError, context: &str) -> PgxError {
             err
         }
         other => PgxError::failure(format!("{context}: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod db_error_tests {
+    use super::*;
+    use crate::pgwire::{DbError, WireError};
+
+    fn err(sqlstate: &str, message: &str) -> PgxError {
+        db_error(
+            WireError::Db(DbError {
+                severity: "ERROR".into(),
+                sqlstate: sqlstate.into(),
+                message: message.into(),
+                detail: None,
+                hint: None,
+            }),
+            "ctx",
+        )
+    }
+
+    #[test]
+    fn a_lost_create_database_race_is_a_conflict() {
+        assert_eq!(
+            err("42P04", "database \"x\" already exists").code,
+            ExitCode::Conflict
+        );
+        assert_eq!(
+            err(
+                "23505",
+                "duplicate key value violates unique constraint \"pg_database_datname_index\""
+            )
+            .code,
+            ExitCode::Conflict
+        );
+    }
+
+    #[test]
+    fn other_unique_violations_stay_failures() {
+        assert_eq!(
+            err(
+                "23505",
+                "duplicate key value violates unique constraint \"users_pkey\""
+            )
+            .code,
+            ExitCode::Failure
+        );
     }
 }

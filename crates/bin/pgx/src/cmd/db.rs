@@ -240,7 +240,8 @@ pub struct Cloned {
 /// source and the target, `CREATE DATABASE … TEMPLATE … STRATEGY = FILE_COPY`,
 /// record the TTL. A refused call creates nothing. The explicit target check
 /// gives a clear message; the engine's own uniqueness check stays the
-/// authority when two calls race for one name (sqlstate 42P04 → exit 4).
+/// authority when two calls race for one name (sqlstate 42P04, or 23505 on
+/// pg_database_datname_index → exit 4).
 pub(crate) fn clone_database(
     ctx: &Ctx,
     client: &mut Client,

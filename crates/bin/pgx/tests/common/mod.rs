@@ -400,7 +400,8 @@ pub fn find_psql() -> PathBuf {
         return PathBuf::from(p);
     }
     for cand in [
-        "/opt/homebrew/opt/postgresql@18/bin/psql",
+        "/opt/homebrew/opt/postgresql@18/bin/psql", // Homebrew, Apple silicon
+        "/usr/local/opt/postgresql@18/bin/psql",    // Homebrew, Intel
         "/usr/lib/postgresql/18/bin/psql",
         "/usr/local/pgsql/bin/psql",
     ] {
@@ -408,7 +409,15 @@ pub fn find_psql() -> PathBuf {
             return PathBuf::from(cand);
         }
     }
-    PathBuf::from("psql")
+    // Always an absolute path: callers put `find_psql().parent()` on a PATH,
+    // and the parent of a bare "psql" is empty.
+    std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|d| d.join("psql"))
+                .find(|p| p.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from("psql"))
 }
 
 impl Drop for Pgx {

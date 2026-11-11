@@ -89,7 +89,7 @@ function missingAssetMessage(target, version, url, status) {
   if (target === 'darwin-amd64' && status === 404) {
     msg +=
       `\n  PGX ${version} predates macOS on Intel: no binary is published for darwin-amd64.` +
-      '\n  Intel Macs are supported from the first release after 0.1.2; install `pgxdb@latest`.';
+      '\n  Intel Macs are supported from the first release after 0.1.3; install `pgxdb@latest`.';
   }
   return msg;
 }

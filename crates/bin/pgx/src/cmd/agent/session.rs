@@ -35,6 +35,8 @@ pub struct Resolved {
     /// produce composite forms the parser rejects, so the original is kept.
     pub idle_label: String,
     pub grace: Ttl,
+    /// PGX Git: the session branches from its current Git branch's database.
+    pub git: Option<crate::cmd::git::core::AgentGit>,
 }
 
 impl Resolved {
@@ -115,10 +117,19 @@ pub fn resolve(input: &ResolveInput) -> Result<Resolved> {
         }
     }
     let project = project::locate(&cwd, &fallbacks)?;
+    // PGX Git (opted in with `[git]` + `[git.agents] enabled`): the source is
+    // the database of the Git branch checked out where the session runs. An
+    // explicit --source / PGX_SOURCE still wins.
+    let git = if input.source.is_none() && env("PGX_SOURCE").is_none() {
+        crate::cmd::git::core::agent_binding(&cwd)?
+    } else {
+        None
+    };
     let (source_name, explicit_source) = match input
         .source
         .clone()
         .or_else(|| env("PGX_SOURCE"))
+        .or_else(|| git.as_ref().map(|_| "pgx_git_branch".to_string()))
         .or_else(|| project.source.clone())
     {
         Some(s) => (s, true),
@@ -143,6 +154,7 @@ pub fn resolve(input: &ResolveInput) -> Result<Resolved> {
             session_id,
             project_id: project.project_id.clone(),
             agent_id,
+            scope: git.as_ref().map(|g| g.scope.clone()),
         },
         project,
         source,
@@ -150,6 +162,7 @@ pub fn resolve(input: &ResolveInput) -> Result<Resolved> {
         idle_ttl,
         idle_label,
         grace,
+        git,
     })
 }
 
@@ -253,6 +266,11 @@ pub fn lock_session(home: &Home, key: &SessionKey) -> Result<std::fs::File> {
 }
 
 fn meta_matches(m: &AgentMeta, key: &SessionKey) -> bool {
+    meta_matches_any_scope(m, key) && m.git_scope == key.scope
+}
+
+/// The same session (or subagent) under any PGX Git scope.
+fn meta_matches_any_scope(m: &AgentMeta, key: &SessionKey) -> bool {
     m.host == key.host
         && m.session_id == key.session_id
         && m.project_id == key.project_id
@@ -318,6 +336,8 @@ fn new_meta(r: &Resolved, now: u64) -> AgentMeta {
         last_touch: now,
         retired: false,
         agent_id: r.key.agent_id.clone(),
+        git_scope: r.key.scope.clone(),
+        git_branch: r.git.as_ref().map(|g| g.label.clone()),
     }
 }
 
@@ -444,6 +464,22 @@ pub fn up(out: &Out, r: &Resolved) -> Result<UpResult> {
         }
     }
 
+    // PGX Git: the current Git branch's database (created from the main
+    // snapshot on first use, exactly as a checkout would).
+    let mut source = r.source.clone();
+    let mut git_snapshot: Option<DbName> = None;
+    let mut git_main = false;
+    if let Some(g) = &r.git {
+        let s = crate::cmd::git::core::agent_source(&quiet, g)?;
+        source = s.database;
+        git_snapshot = s.snapshot;
+        git_main = s.main;
+    }
+    let r = &Resolved {
+        source,
+        ..r.clone()
+    };
+
     // The source must exist and be idle.
     let mut source_created = false;
     if !db::exists(&ctx, &mut client, &r.source)? {
@@ -466,7 +502,21 @@ pub fn up(out: &Out, r: &Resolved) -> Result<UpResult> {
         }
         source_created = true;
     }
-    let busy = db::active_connections(&mut client, r.source.as_str())?;
+    let mut busy = db::active_connections(&mut client, r.source.as_str())?;
+    let mut live_copy = false;
+    let mut r_owned = r.clone();
+    if busy > 0 && r.git.is_some() {
+        // A developer's server is connected to the branch database. Never
+        // terminate it: on main, branch from the validated main snapshot
+        // (immutable, always idle); on a feature branch, take a consistent
+        // logical copy instead of a file clone.
+        match (&git_snapshot, git_main) {
+            (Some(snap), true) => r_owned.source = snap.clone(),
+            _ => live_copy = true,
+        }
+        busy = 0;
+    }
+    let r = &r_owned;
     if busy > 0 {
         return Err(PgxError::new(
             ExitCode::InUse,
@@ -498,22 +548,31 @@ pub fn up(out: &Out, r: &Resolved) -> Result<UpResult> {
         short
     };
 
-    let (branch, cloned) =
-        match db::clone_database(&ctx, &mut client, &r.source, &branch, Some(&r.idle_label)) {
-            Ok(c) => (branch, c),
-            Err(e) if e.code == ExitCode::Conflict => {
-                // Another session took this name between the check and the
-                // clone (42P04): fall back to the long, project-qualified name.
-                let long = names::validate(&identity::branch_name(&r.key, true))?;
-                if long == branch {
-                    return Err(e);
-                }
-                let c =
-                    db::clone_database(&ctx, &mut client, &r.source, &long, Some(&r.idle_label))?;
-                (long, c)
+    let make = |client: &mut Client, target: &DbName| -> Result<(&'static str, f64)> {
+        if live_copy {
+            let (m, ms) =
+                crate::cmd::git::core::copy_database(&quiet, &ctx, client, &r.source, target)?;
+            db::record_ttl(&ctx, client, target, Some(&r.idle_label))?;
+            Ok((m, ms))
+        } else {
+            let c = db::clone_database(&ctx, client, &r.source, target, Some(&r.idle_label))?;
+            Ok((c.method, c.elapsed_ms))
+        }
+    };
+    let (branch, cloned) = match make(&mut client, &branch) {
+        Ok(c) => (branch, c),
+        Err(e) if e.code == ExitCode::Conflict => {
+            // Another session took this name between the check and the
+            // clone (42P04): fall back to the long, project-qualified name.
+            let long = names::validate(&identity::branch_name(&r.key, true))?;
+            if long == branch {
+                return Err(e);
             }
-            Err(e) => return Err(e),
-        };
+            let c = make(&mut client, &long)?;
+            (long, c)
+        }
+        Err(e) => return Err(e),
+    };
     // Attach the session to the record `clone_database` wrote.
     let mut rec = store
         .load(branch.as_str())?
@@ -537,8 +596,8 @@ pub fn up(out: &Out, r: &Resolved) -> Result<UpResult> {
         idle_ttl: r.idle_ttl,
         key: r.key.clone(),
         project_root: r.project.root.clone(),
-        method: cloned.method,
-        elapsed_ms: cloned.elapsed_ms,
+        method: cloned.0,
+        elapsed_ms: cloned.1,
         port: ctx.config.port,
         password: ctx.config.password.clone(),
         guard_warnings,
@@ -621,6 +680,32 @@ pub struct DownResult {
 /// so a statement it left running must not commit later. A resumed session
 /// reconnects on its own.
 pub fn down(r: &Resolved, now_flag: bool) -> Result<DownResult> {
+    let res = down_one(r, now_flag)?;
+    // PGX Git: a session that switched Git branches owns one branch per Git
+    // branch; ending the session ends all of them.
+    {
+        let home = Home::resolve();
+        if home.is_initialized() {
+            let store = MetaStore::new(&home.root);
+            let (records, _) = store.list();
+            for rec in records {
+                let Some(m) = rec.agent.as_ref() else {
+                    continue;
+                };
+                if meta_matches_any_scope(m, &r.key) && m.git_scope != r.key.scope {
+                    let mut other = r.clone();
+                    other.key.scope = m.git_scope.clone();
+                    if let Err(e) = down_one(&other, now_flag) {
+                        eprintln!("pgx agent: could not end {}: {}", rec.name, e.message);
+                    }
+                }
+            }
+        }
+    }
+    Ok(res)
+}
+
+fn down_one(r: &Resolved, now_flag: bool) -> Result<DownResult> {
     let home = Home::resolve();
     let none = DownResult {
         branch: None,

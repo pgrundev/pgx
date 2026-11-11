@@ -76,6 +76,28 @@ the per-host compatibility matrix are in [agents.md](agents.md).
 | `pgx agent hook [--host claude\|cursor\|codex]` | The command the hosts' hook files run: reads the host payload on stdin, detects the host and event, and answers in its dialect (Claude: `CLAUDE_ENV_FILE` exports plus a context line on `SessionStart`; `additionalContext` on `SubagentStart`; `updatedInput` (the command rewritten to `<pgx> agent exec --agent <id> --cwd <project> -- <shell> -c '<command>'`) or `permissionDecision: deny` on a subagent's `PreToolUse` for Bash; Cursor: `{"env":…,"additional_context":…}`; Codex: `additionalContext`). Never exits 2. Fails closed with an unreachable sentinel `DATABASE_URL` (session) or a refusal (subagent command) when the project has `.pgx.toml` and no branch could be made. Logs every delivery to `~/.pgx/agent/hooks.log`. |
 | `pgx agent install [claude] [cursor] [codex] [--scope …] [--source <db>]` / `uninstall` | Merge our entries into (or remove them from) `.claude/settings.json`, `.cursor/hooks.json`, `.codex/hooks.json` (or the `--scope local`/`user` files), leaving every other entry untouched. |
 
+## Git: one isolated database per Git branch
+
+`pgx git` connects the Git lifecycle to PGX databases: hooks give every
+branch (per worktree) a copy-on-write database cloned from the latest
+validated snapshot of the main database. Full guide, configuration and
+semantics: [git.md](git.md).
+
+| Command | What it does |
+|---|---|
+| `pgx git init [--source <db\|postgres-url>] [--main <branch>] [--schema-only\|--with-data] [--no-hooks]` | Set up the repository: initialise/start PGX, create (never overwrite) the main database (empty, a clone of a PGX database, or a read-only import that is schema-only unless `--with-data`), publish main snapshot v1, add the `[git]` tables to `.pgx.toml`, install `post-checkout`/`post-merge`/`post-rewrite` (non-destructively), map the current branch. Safe to rerun. No repository: exit 5. |
+| `pgx git status` | Project, Git branch, worktree, database and readiness, main database, main snapshot vs branch baseline, sync state (main changed, pending migrations, stale branch, last failure), agent isolation. Read-only. |
+| `pgx git ls` | `BRANCH DATABASE BASE STATUS WORKTREE`; status `current`, `ready`, `stale`, `abandoned`, `missing`; the snapshots. `--json`: `branches`, `snapshots`, `current_generation`. |
+| `pgx git sync [--force] [--migrate]` | Publish a new immutable main snapshot when main's schema or migration bookkeeping changed (validated, atomic; a busy main is copied logically, never terminated). `--migrate` first runs `[git.migrations] command`. Status `published`, `unchanged`, `pending` (migrations committed on main but not applied), `failed` (exit 1; the previous snapshot stays). Existing branch databases are never changed. |
+| `pgx git env [--shell bash\|zsh\|fish] [--reveal]` | The current branch's `DATABASE_URL`, `PG*`, `PGX_BRANCH`, `PGX_GIT_BRANCH`, `PGX_WORKTREE`, `PGX_SOURCE`, `PGX_ISOLATION`. The password is masked in human and `--json` output (`"redacted": true`) unless `--reveal`; `--shell` prints complete `export` lines for `eval`. Inside an agent session: the session's own branch. |
+| `pgx git exec -- <command> [args…]` | Run a command with those variables (the process is replaced: exit status and signals are the command's). Refuses to run when the database cannot be resolved. Inside an agent session: `pgx agent exec` semantics. |
+| `pgx git reset --from-main [--force]` | Recreate the current branch's database from the latest main snapshot (asks; `--force` for scripts). Refuses main and protected branches (exit 2). |
+| `pgx git prune [--apply] [--grace <dur>]` | Databases of deleted branches and removed worktrees idle past `abandoned_ttl` (default 7d), and retired snapshots. Dry run unless `--apply`. Never main, protected branches, agent databases, busy or recreated databases, or anything PGX Git did not create. |
+| `pgx git doctor` | Repository, config, runtime, state, hooks, shell integration, main database, snapshot (exists, OID, locked), schema/migration sync, mapping collisions, missing and unmapped databases, agent integration, live-copy tools. Exit 1 on a failure. |
+| `pgx git uninstall [--shell]` | Remove PGX's hook blocks (and hook files it created); `--shell` also the shell integration. Databases and `.pgx.toml` are kept. |
+| `pgx git shell <bash\|zsh\|fish>` / `pgx git install-shell [<sh>]` | Print the prompt integration / add it (one marked block) to the shell's rc file. |
+| `pgx git hook <name> [args…]` | What the installed hooks run. Never fails Git. |
+
 ## Import from PostgreSQL
 
 | Command | What it does |

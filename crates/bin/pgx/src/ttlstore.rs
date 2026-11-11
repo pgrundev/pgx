@@ -54,6 +54,10 @@ pub struct AgentMeta {
     pub retired: bool,
     /// The host's id for a subagent of the session; `None` for the session itself.
     pub agent_id: Option<String>,
+    /// PGX Git scope (worktree + Git branch hash) the branch belongs to.
+    pub git_scope: Option<String>,
+    /// The Git branch, for humans (`pgx agent ls`, `pgx git status`).
+    pub git_branch: Option<String>,
 }
 
 impl AgentMeta {
@@ -67,6 +71,8 @@ impl AgentMeta {
             "source": self.source,
             "last_touch": self.last_touch,
             "retired": self.retired,
+            "git_scope": self.git_scope,
+            "git_branch": self.git_branch,
         })
     }
 
@@ -85,6 +91,9 @@ impl AgentMeta {
             retired: v.get("retired").and_then(|x| x.as_bool()).unwrap_or(false),
             // Absent in records written before subagents existed: the session itself.
             agent_id: s("agent_id").filter(|a| !a.is_empty()),
+            // Absent in records written before PGX Git existed.
+            git_scope: s("git_scope").filter(|a| !a.is_empty()),
+            git_branch: s("git_branch").filter(|a| !a.is_empty()),
         })
     }
 }
@@ -424,6 +433,8 @@ mod tests {
             last_touch: 1_000_000,
             retired: false,
             agent_id: None,
+            git_scope: None,
+            git_branch: None,
         });
         assert_eq!(TtlRecord::from_json(&r.to_json()).unwrap(), r);
         // A subagent record round-trips its agent id; a pre-subagent record

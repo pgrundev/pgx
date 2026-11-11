@@ -64,7 +64,7 @@ Environment overrides:
 | `PGX_HOME`, `PGX_PORT`, `PGX_PASSWORD`, `PGX_DURABILITY` | passed through to `pgx` (see `npx pgxdb help`) |
 
 Requires Node.js 18 or newer and `tar` (present on every supported OS).
-Intel Macs are supported from the first release after 0.1.2 (older releases
+Intel Macs are supported from the first release after 0.1.3 (older releases
 publish no darwin-amd64 binary; `npx pgxdb` says so). Windows is not supported.
 
 ## Links

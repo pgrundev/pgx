@@ -3,6 +3,61 @@
 A self-contained, relocatable, PostgreSQL 18 compatible runtime for local
 development, CI and disposable databases. No system PostgreSQL required.
 
+## PGX v0.1.3 — One Git Branch, One Isolated Postgres
+
+`pgx git` gives every Git branch, in every worktree, its own copy-on-write
+database, cloned from the latest validated snapshot of your main database.
+You keep using plain `git switch`.
+
+```sh
+cd my-project
+pgx git init                      # main database, first main snapshot, Git hooks
+git switch -c feature/auth        # ✓ PGX database ready: feature/auth
+pgx git exec -- bin/rails db:migrate
+pgx git sync                      # publish main's new schema as the next snapshot
+```
+
+- **Commands:** `pgx git init | status | ls | sync | env | exec | reset --from-main | prune | doctor | uninstall | shell | install-shell`.
+- **Hooks:** `post-checkout`, `post-merge` and `post-rewrite` create and map
+  branch databases. Existing hooks, permissions and stdin are preserved, and
+  `uninstall` restores them byte for byte. Shared hook directories
+  (`core.hooksPath` outside the repository, husky's `.husky/_`) are never
+  written to; `pgx git init` prints the line to add yourself.
+- **Main snapshots:** immutable, versioned, validated by schema and
+  migration fingerprints, and published only when main is idle and has no
+  pending migrations. A branch database is never overwritten when main moves
+  on. `pgx git reset --from-main` re-clones a branch on request and is
+  crash-safe.
+- **Worktrees and repositories:** each worktree gets its own database for
+  the same branch. Identity is stored in `.git`, so moving or renaming the
+  repository keeps its databases, and a copied repository gets new ones.
+- **Agents:** `pgx agent` sessions and subagents now branch from the current
+  Git branch's database: Git branch → agent session → subagent. In Claude
+  Code, a command that switches branches and then keeps working is refused
+  with the fix, and later commands are rerouted to the new branch's database.
+- **Shell:** `pgx git install-shell` (zsh, bash, fish) keeps `DATABASE_URL`
+  in step with the checked-out branch.
+- **Security:** `pgx git env` and `--json` mask the password unless you pass
+  `--reveal`. External imports are schema-only by default and the source is
+  never written. Branch names never reach a shell. Fault injection exists
+  only in test builds compiled with the `failpoints` feature.
+- **Config:** `[git]` in `.pgx.toml`. Guide: `docs/pgx/local-dev/git.md`.
+
+Measured on macOS arm64 (M1 Pro, APFS): a branch database clone takes
+34–72 ms, `git switch -c` including the hook 486–589 ms, switching to an
+existing branch 230–245 ms, and `pgx git sync` on an idle main 204–292 ms.
+
+### Known limitations
+
+1. Cursor's terminal keeps the database from the start of the session after
+   a branch switch; start a new session or use `pgx git exec`.
+2. The branch-switch guard and rerouting are Claude Code only. Codex and
+   Cursor sessions are still isolated, but not rerouted after a switch.
+3. The guard cannot see a branch switch hidden inside a script or a
+   variable.
+4. Copying a database that is in use needs `pg_dump`/`pg_restore`.
+5. The fish integration is not tested yet.
+
 ## PGX v0.1.2 — Every AI Subagent Gets Its Own Postgres
 
 0.1.1 gave every Claude Code **session** its own branch. Subagents launched

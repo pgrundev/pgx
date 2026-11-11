@@ -45,7 +45,7 @@ for the user to run themselves and stop.
 
 ## Platforms
 
-macOS arm64 (Apple silicon), macOS amd64 (Intel; releases after v0.1.2
+macOS arm64 (Apple silicon), macOS amd64 (Intel; releases after v0.1.3
 only), Linux amd64, Linux arm64. Not supported: Windows (WSL2 counts as Linux). Do not claim otherwise; on an
 unsupported platform explain and stop.
 

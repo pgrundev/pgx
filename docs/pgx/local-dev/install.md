@@ -82,7 +82,7 @@ that reaps processes.
 
 ## From source
 
-See the repository README "Quickstart → Build": the Rust toolchain (pinned by
+See [`build-from-source.md`](build-from-source.md): the Rust toolchain (pinned by
 `rust-toolchain.toml`), RE2, and PostgreSQL 18 client tools, then
 `cargo build --release --bin postgres --bin pgx` and `dist/assemble.sh`.
 
@@ -93,5 +93,5 @@ See the repository README "Quickstart → Build": the Rust toolchain (pinned by
 | macOS arm64 (Apple silicon) | supported, verified |
 | Linux arm64 | supported, verified |
 | Linux x86-64 | supported, built and smoke-tested in CI |
-| macOS x86-64 (Intel) | supported from the first release after v0.1.2, built and smoke-tested in CI; verified on macOS 15.8 (Core i5-8279U): lifecycle, databases and clone suites and `smoke_packaged.sh` pass. Releases up to v0.1.2 publish no Intel binary |
+| macOS x86-64 (Intel) | supported from the first release after v0.1.3, built and smoke-tested in CI; verified on macOS 15.8 (Core i5-8279U): lifecycle, databases and clone suites and `smoke_packaged.sh` pass. Releases up to v0.1.3 publish no Intel binary |
 | Windows | not supported |

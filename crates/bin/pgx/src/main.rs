@@ -63,6 +63,8 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
         // Agent commands manage initialisation themselves (`setup` initialises;
         // `hook` must degrade gracefully instead of pointing at `pgx init`).
         Command::Agent(cmd) => cmd::agent::run(&out, cmd),
+        // PGX Git initialises (`init`) or degrades (`hook`) on its own.
+        Command::Git(cmd) => cmd::git::run(&out, cmd),
         other => {
             let home = layout::Home::resolve();
             if !home.is_initialized() {
@@ -97,6 +99,7 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
                 | Command::Run
                 | Command::Doctor
                 | Command::Agent(_)
+                | Command::Git(_)
                 | Command::Serve
                 | Command::Supervise => unreachable!(),
             }

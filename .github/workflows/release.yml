@@ -40,7 +40,7 @@ jobs:
         include:
           - { os: ubuntu-24.04,     target: linux-amd64 }
           - { os: ubuntu-24.04-arm, target: linux-arm64 }
-          - { os: macos-14,         target: darwin-arm64 }
+          - { os: macos-15,         target: darwin-arm64 }
           - { os: macos-15-intel,   target: darwin-amd64 }
     runs-on: ${{ matrix.os }}
     steps:

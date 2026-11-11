@@ -14,7 +14,7 @@ description: >
 license: AGPL-3.0
 metadata:
   author: pgrundev
-  version: "0.1.2"
+  version: "0.1.3"
   homepage: https://pgx.dev
   repository: https://github.com/pgrundev/pgx
 ---
@@ -231,6 +231,30 @@ template. More: [references/database-branching.md](references/database-branching
   PostgreSQL source, run `pgx copy` again into a new name and update
   `.pgx.toml` (ask first).
 
+## PGX Git: one database per Git branch
+
+`detect-project.sh` reports `git.repository` and `git.pgx_git` (a `[git]`
+table in `.pgx.toml`). Read [references/git-integration.md](references/git-integration.md)
+before acting on either.
+
+- **`pgx_git` is true**: the repository gives every Git branch (per worktree)
+  its own database, cloned from a validated snapshot of the main database,
+  and your session's branch is cloned from **the current Git branch's
+  database** automatically. Nothing to set up. After you `git switch`, your
+  next commands get a branch of the new Git branch's database (Claude Code
+  reroutes them; elsewhere use `pgx git exec -- <command>` or
+  `pgx agent exec -- <command>`). `pgx --json git status` shows the branch,
+  its baseline and whether main has newer changes.
+- **Never** run `pgx git reset --from-main` (destroys the branch database's
+  changes) or `pgx git prune --apply` without the user's explicit yes, and
+  never write to the main database from a feature branch.
+- **`repository` is true, `pgx_git` false**: offer PGX Git when the user
+  wants a database per branch or worktree. `pgx git init` installs Git hooks
+  and edits `.pgx.toml`, so ask first; it imports nothing unless given
+  `--source` (schema-only by default for a `postgres://` URL, with the same
+  approval rules as step 3). Requires a PGX with `pgx git` (`pgx git status`
+  exits 2 with "unknown command" on older binaries: then do not offer it).
+
 ## Hosts
 
 | Host | After `pgx agent setup` | Notes |
@@ -257,6 +281,7 @@ pgx agent ls / pgx agent doctor / pgx agent down --now / pgx agent uninstall
 - [postgres-import.md](references/postgres-import.md): `pgx copy`, approval rules, extensions.
 - [database-branching.md](references/database-branching.md): branches, TTLs, what a framework sees.
 - [agent-lifecycle.md](references/agent-lifecycle.md): `pgx agent` commands, hook files, `.pgx.toml`.
+- [git-integration.md](references/git-integration.md): PGX Git, branch databases, snapshots, agents on Git branches.
 - [claude-code.md](references/claude-code.md), [cursor.md](references/cursor.md), [codex.md](references/codex.md): per-host behaviour and limits.
 - [troubleshooting.md](references/troubleshooting.md): symptoms and fixes.
 - [security.md](references/security.md): the rules above, in full.

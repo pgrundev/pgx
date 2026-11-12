@@ -326,9 +326,9 @@ pgx stop
 ```
 
 Without Node, `curl -fsSL https://pgx.dev/install | sh` does the same
-install. Supported: Apple silicon Macs and Linux (arm64, x86-64); Intel
-Macs are not supported yet. Any PostgreSQL client or ORM works against
-`pgx url <db>`.
+install. Supported: macOS (Apple silicon and Intel) and Linux (arm64,
+x86-64); Intel Macs are supported from the first release after v0.1.3. Any
+PostgreSQL client or ORM works against `pgx url <db>`.
 
 Clones are copy-on-write on a backend with block cloning (such as ZFS), a
 full copy elsewhere. `pgx branch` is `pgx clone` for agents: a 2-hour TTL by

@@ -25,7 +25,7 @@ if [ "$OS" = Darwin ]; then
     [ -e "$f" ] || continue
     stray="$(otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -vE '^/usr/lib/|^/System/|^@(rpath|loader_path|executable_path)/' || true)"
     [ -z "$stray" ] || die "$f loads non-system libs:\n$stray"
-    [ "$f" = "$PG" ] && { n=$(DYLD_PRINT_LIBRARIES=1 "$PG" --version 2>&1 | grep -c '/opt/homebrew' || true); [ "$n" = 0 ] || die "engine loads $n Homebrew dylibs"; }
+    [ "$f" = "$PG" ] && { n=$(DYLD_PRINT_LIBRARIES=1 "$PG" --version 2>&1 | grep -cE '^dyld[^ ]* <[^>]*> (/opt/homebrew|/usr/local)/' || true); [ "$n" = 0 ] || die "engine loads $n Homebrew dylibs"; }
   done
   echo "ok: only /usr/lib + /System (and bundled @rpath), 0 Homebrew loads"
 else

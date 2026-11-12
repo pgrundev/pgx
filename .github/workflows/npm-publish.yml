@@ -97,7 +97,7 @@ jobs:
           set -eu
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           echo "$assets"
-          for t in darwin-arm64 linux-amd64 linux-arm64; do
+          for t in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
             for f in "pgx-$VERSION-$t.tar.gz" "pgx-$VERSION-$t.tar.gz.sha256"; do
               echo "$assets" | grep -qx "$f" || { echo "::error::release $TAG lacks $f" >&2; exit 1; }
             done

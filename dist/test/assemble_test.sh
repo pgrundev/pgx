@@ -23,7 +23,7 @@ PGX_STUB="$TMP/pgx-stub"; printf '#!/bin/sh\necho stub\n' > "$PGX_STUB"; chmod +
 PREFIX="$(find "$TMP/out" -maxdepth 1 -type d -name 'pgx-0.0.0-test-*' | head -1)"
 [ -n "$PREFIX" ] || fail "no pgx-0.0.0-test-<os>-<arch> directory under out/"
 case "$(basename "$PREFIX")" in
-  pgx-0.0.0-test-darwin-arm64|pgx-0.0.0-test-linux-amd64|pgx-0.0.0-test-linux-arm64) ;;
+  pgx-0.0.0-test-darwin-arm64|pgx-0.0.0-test-darwin-amd64|pgx-0.0.0-test-linux-amd64|pgx-0.0.0-test-linux-arm64) ;;
   *) fail "unexpected platform suffix: $(basename "$PREFIX")" ;;
 esac
 

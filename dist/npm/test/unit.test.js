@@ -78,12 +78,12 @@ test('pgxArgs defaults to `run` when no arguments are given', () => {
   assert.deepEqual(pgxdb.pgxArgs(['--json']), ['--json', 'run'], 'bare --json still means run');
 });
 
-test('missingAssetMessage names macOS Intel as unsupported when its asset is missing', () => {
+test('missingAssetMessage explains a release that predates macOS Intel', () => {
   const url = 'https://example/v0.1.0/pgx-0.1.0-darwin-amd64.tar.gz';
   const m = pgxdb.missingAssetMessage('darwin-amd64', '0.1.0', url, 404);
   assert.match(m, /download failed: .*darwin-amd64\.tar\.gz: HTTP 404/);
-  assert.match(m, /macOS on Intel .*not supported yet/);
-  assert.match(m, /Apple silicon|Linux/);
+  assert.match(m, /0\.1\.0 predates macOS on Intel/);
+  assert.match(m, /pgxdb@latest/);
   // Other targets get the plain message only.
   const other = pgxdb.missingAssetMessage('linux-amd64', '0.1.0', url, 404);
   assert.equal(other, `download failed: ${url}: HTTP 404`);

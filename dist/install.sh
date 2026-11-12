@@ -35,9 +35,6 @@ case "$arch" in
   aarch64|arm64) arch=arm64 ;;
   *) err "unsupported CPU architecture: $arch (PGX supports amd64 and arm64)" ;;
 esac
-if [ "$os" = darwin ] && [ "$arch" = amd64 ]; then
-  err "macOS on Intel is not a supported target; supported: darwin-arm64, linux-amd64, linux-arm64"
-fi
 
 # Downloader.
 if have curl; then dl() { curl -fsSL "$1" -o "$2"; }; dlout() { curl -fsSL "$1"; }

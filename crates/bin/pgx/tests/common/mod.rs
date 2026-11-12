@@ -22,7 +22,9 @@ use std::sync::{Mutex, MutexGuard};
 /// fd creation and the spawn, never the wait, so tests still run concurrently.
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
-fn spawn_guard() -> MutexGuard<'static, ()> {
+/// Hold [`SPAWN_LOCK`] while creating descriptors a child must not inherit
+/// by accident (the PTY tests' `openpty` + spawn).
+pub fn spawn_guard() -> MutexGuard<'static, ()> {
     SPAWN_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 

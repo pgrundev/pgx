@@ -65,6 +65,8 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
         Command::Agent(cmd) => cmd::agent::run(&out, cmd),
         // PGX Git initialises (`init`) or degrades (`hook`) on its own.
         Command::Git(cmd) => cmd::git::run(&out, cmd),
+        // `pgx top` never initialises anything; `--demo` needs no home at all.
+        Command::Top(opts) => cmd::top::run(&out, opts),
         other => {
             let home = layout::Home::resolve();
             if !home.is_initialized() {
@@ -100,6 +102,7 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
                 | Command::Doctor
                 | Command::Agent(_)
                 | Command::Git(_)
+                | Command::Top(_)
                 | Command::Serve
                 | Command::Supervise => unreachable!(),
             }

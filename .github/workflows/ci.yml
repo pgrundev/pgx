@@ -92,8 +92,10 @@ jobs:
         run: |
           python3 -I tests/pgx/test_sql.py
           cargo test -p pgx --release --test lifecycle --test databases --test clone --test branch --test doctor --test run --test ttl --test copy
+      - name: pgx top (real runtime + interactive PTY)
+        run: cargo test -p pgx --release --test top --test top_tty
       - name: Agent lifecycle suites (pgx agent up/hook/exec/install)
-        run: cargo test -p pgx --release --test agent --test agent_hook --test agent_exec --test agent_install
+        run: cargo test -p pgx --release --test agent --test agent_hook --test agent_exec --test agent_install --test agent_subagent
       - name: PGX Git suite (real Git repositories, hooks, worktrees, agents)
         run: |
           # With fault injection (failed/interrupted snapshot scenarios)...

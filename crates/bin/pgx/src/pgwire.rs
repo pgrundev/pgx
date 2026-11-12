@@ -64,13 +64,20 @@ pub struct Client<S> {
     parameters: HashMap<String, String>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn encode_startup(user: &str, database: &str) -> Vec<u8> {
+    encode_startup_app(user, database, "pgx")
+}
+
+/// The startup message with a chosen `application_name` (`pgx top` names its
+/// monitoring connection `pgx-top` so it is recognisable in pg_stat_activity).
+pub fn encode_startup_app(user: &str, database: &str, application_name: &str) -> Vec<u8> {
     let mut body = Vec::new();
     for (k, v) in [
         ("user", user),
         ("database", database),
         ("client_encoding", "UTF8"),
-        ("application_name", "pgx"),
+        ("application_name", application_name),
     ] {
         body.extend_from_slice(k.as_bytes());
         body.push(0);
@@ -168,16 +175,37 @@ impl Client<UnixStream> {
         database: &str,
         timeout: Duration,
     ) -> Result<Self, WireError> {
+        Self::connect_unix_app(sock_dir, port, user, database, "pgx", timeout)
+    }
+
+    pub fn connect_unix_app(
+        sock_dir: &Path,
+        port: u16,
+        user: &str,
+        database: &str,
+        application_name: &str,
+        timeout: Duration,
+    ) -> Result<Self, WireError> {
         let stream = UnixStream::connect(Self::socket_path(sock_dir, port))?;
         stream.set_read_timeout(Some(timeout))?;
         stream.set_write_timeout(Some(timeout))?;
-        Client::handshake(stream, user, database)
+        Client::handshake_app(stream, user, database, application_name)
     }
 }
 
 impl<S: Read + Write> Client<S> {
-    pub fn handshake(mut stream: S, user: &str, database: &str) -> Result<Self, WireError> {
-        stream.write_all(&encode_startup(user, database))?;
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn handshake(stream: S, user: &str, database: &str) -> Result<Self, WireError> {
+        Self::handshake_app(stream, user, database, "pgx")
+    }
+
+    pub fn handshake_app(
+        mut stream: S,
+        user: &str,
+        database: &str,
+        application_name: &str,
+    ) -> Result<Self, WireError> {
+        stream.write_all(&encode_startup_app(user, database, application_name))?;
         stream.flush()?;
         let mut client = Client {
             stream,

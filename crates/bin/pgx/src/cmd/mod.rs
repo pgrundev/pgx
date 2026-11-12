@@ -9,6 +9,7 @@ pub mod start;
 pub mod status;
 pub mod stop;
 pub mod supervise;
+pub mod top;
 pub mod ttl;
 pub mod version;
 

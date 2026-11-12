@@ -10,6 +10,7 @@ use crate::errors::{PgxError, Result};
 use crate::out::Out;
 use std::path::PathBuf;
 
+pub mod activity;
 pub mod doctor;
 pub mod exec;
 pub mod hook;
@@ -126,6 +127,8 @@ pub enum AgentCmd {
     Exec(ExecOpts),
     Env(IdOpts),
     Ls,
+    /// `pgx agent activity --state …`: an explicit task phase for `pgx top`.
+    Activity(activity::ActivityOpts),
     Hook(HookOpts),
     Install(InstallOpts),
     Uninstall(InstallOpts),
@@ -134,10 +137,11 @@ pub enum AgentCmd {
 }
 
 const USAGE: &str =
-    "usage: pgx agent <setup|doctor|exec|ls|up|touch|down|env|hook|install|uninstall> [options]";
+    "usage: pgx agent <setup|doctor|exec|ls|up|touch|down|env|activity|hook|install|uninstall> [options]";
 
-const VALUE_FLAGS: [&str; 10] = [
-    "id", "host", "agent", "source", "ttl", "grace", "hosts", "scope", "cwd", "branch",
+const VALUE_FLAGS: [&str; 12] = [
+    "id", "host", "agent", "source", "ttl", "grace", "hosts", "scope", "cwd", "branch", "state",
+    "task",
 ];
 const BOOL_FLAGS: [&str; 4] = ["env", "now", "keep", "no-hooks"];
 
@@ -291,6 +295,27 @@ pub fn parse(tail: &[&str]) -> Result<AgentCmd> {
             only(&[])?;
             no_positional("ls")?;
             AgentCmd::Ls
+        }
+        "activity" => {
+            only(&["id", "host", "agent", "cwd", "state", "task"])?;
+            if !positional.is_empty() {
+                return Err(PgxError::usage(activity::USAGE));
+            }
+            let Some(state) = value("state") else {
+                return Err(PgxError::usage(format!(
+                    "pgx agent activity: --state is required\n{}",
+                    activity::USAGE
+                )));
+            };
+            activity::parse_state(&state)?;
+            AgentCmd::Activity(activity::ActivityOpts {
+                id: value("id"),
+                host: value("host"),
+                agent: value("agent"),
+                cwd: cwd_flag,
+                state,
+                task: value("task"),
+            })
         }
         "doctor" => {
             only(&[])?;
@@ -457,6 +482,7 @@ pub fn run(out: &Out, cmd: AgentCmd) -> Result<ExitCode> {
             Ok(ExitCode::Ok)
         }
         AgentCmd::Ls => session::ls(out),
+        AgentCmd::Activity(o) => activity::run(out, o),
         AgentCmd::Exec(o) => exec::run(out, o),
         AgentCmd::Hook(o) => hook::run(out, o),
         AgentCmd::Install(o) => install::install(out, o, &cwd()?),

@@ -232,9 +232,10 @@ One object, the same collector and model the screen uses:
   include `ttl_record_unreadable`, `ttl_record_foreign_cluster`,
   `ttl_record_stale_oid`, `ttl_record_orphaned`, `ttl_delete_retry`,
   `ttl_last_error`, `git_state_unreadable`, `runtime_unreachable`,
-  `catalog_query_failed` (issues) and `ttl_record_pending_cleanup`,
-  `git_state_foreign_cluster`, `phase_records_ignored`,
-  `size_sample_failed`, `not_initialized` (info). `summary.issues` counts the
+  `catalog_query_failed`, `collector_panicked` (issues) and
+  `ttl_record_pending_cleanup`, `git_state_foreign_cluster`,
+  `phase_records_ignored`, `size_sample_failed`, `runtime_query_interrupted`,
+  `not_initialized` (info). `summary.issues` counts the
   issues of this collection; it is not a cumulative error counter.
 - Exit status: 0 when the runtime is running (and always for `--demo`), 3
   when it is not initialised or not running — the object is printed either
@@ -266,6 +267,20 @@ the command and in the unit tests' 1,000-database fixtures.
 - The terminal is restored (raw mode off, main screen, cursor visible) on
   `q`, `Ctrl-C`, SIGTERM/SIGHUP/SIGINT, errors and, best effort, panics.
 - No network endpoints, daemons or telemetry.
+
+## Limitations
+
+- TASK is `—` unless an agent reports a phase; nothing is inferred.
+- No per-database memory and no CPU meter: MEM is the whole runtime's RSS.
+- SIZE is logical; copy-on-write sharing between clones is not measured.
+- Recent events live in memory (last 100) and start empty each time.
+- The monitor holds one connection to the `postgres` database while it
+  runs. It never counts itself, but other commands do: `pgx clone postgres …`
+  or `pgx drop postgres` see one more client while `pgx top` is open. Agent
+  sources (`app`, `<app>_template`) are unaffected.
+- Phase files (one small file per agent identity that ever reported) are
+  not pruned yet; stale ones are ignored. Beyond 20,000 files the rest are
+  skipped and counted under `phase_records_ignored`.
 
 ## Troubleshooting
 

@@ -118,13 +118,17 @@ impl EventLog {
     }
 
     fn push(&mut self, at: u64, glyph: &'static str, text: String) {
-        // Deduplicate: the same text within the last few entries and seconds.
-        if self
-            .events
-            .iter()
-            .rev()
-            .take(8)
-            .any(|e| e.text == text && at.saturating_sub(e.at) < 10)
+        // Deduplicate repeated notices (the same problem or runtime state
+        // within seconds). Database transitions are exact per snapshot pair
+        // and never suppressed: a drop and a re-create are both news.
+        let notice = matches!(glyph, "!" | "○" | "●");
+        if notice
+            && self
+                .events
+                .iter()
+                .rev()
+                .take(8)
+                .any(|e| e.text == text && at.saturating_sub(e.at) < 10)
         {
             return;
         }
@@ -453,6 +457,23 @@ mod tests {
         assert_eq!(newest.text, "d49 database created");
         let ats: Vec<u64> = l.recent().map(|e| e.at).collect();
         assert!(ats.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[test]
+    fn a_quick_recreate_is_reported_every_time() {
+        let mut l = EventLog::default();
+        l.observe(&snap(vec![]));
+        l.observe(&at(snap(vec![standalone(10, "x")]), 1));
+        l.observe(&at(snap(vec![]), 2));
+        l.observe(&at(snap(vec![standalone(11, "x")]), 3));
+        assert_eq!(
+            texts(&l),
+            [
+                "+ x database created",
+                "- x database dropped",
+                "+ x database created"
+            ]
+        );
     }
 
     #[test]

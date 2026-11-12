@@ -96,8 +96,24 @@ pub fn project_name(root: &str, project_id: &str) -> String {
 
 /// Where PGX Git puts a database, by name: (repo, branch db record) for
 /// states of *this* cluster.
+struct GitEntry<'a> {
+    st: &'a RepoState,
+    role: Role,
+    branch: String,
+    worktree: String,
+    oid: u64,
+    /// Only a snapshot's staging database has no recorded OID.
+    oid_optional: bool,
+}
+
+impl GitEntry<'_> {
+    fn verifies(&self, live_oid: u64) -> bool {
+        (self.oid_optional && self.oid == 0) || (self.oid != 0 && self.oid == live_oid)
+    }
+}
+
 struct GitIndex<'a> {
-    by_db: HashMap<&'a str, (&'a RepoState, Role, String, String, u64)>,
+    by_db: HashMap<&'a str, GitEntry<'a>>,
 }
 
 fn git_index<'a>(
@@ -117,16 +133,18 @@ fn git_index<'a>(
             ));
             continue;
         }
+        let entry = |role, branch: &str, worktree: &str, oid, oid_optional| GitEntry {
+            st,
+            role,
+            branch: branch.to_string(),
+            worktree: worktree.to_string(),
+            oid,
+            oid_optional,
+        };
         if let Some(m) = &st.main {
             by_db.insert(
                 m.database.as_str(),
-                (
-                    st,
-                    Role::GitMain,
-                    m.branch.clone(),
-                    m.worktree_path.clone(),
-                    m.oid,
-                ),
+                entry(Role::GitMain, &m.branch, &m.worktree_path, m.oid, false),
             );
         }
         for b in &st.branches {
@@ -136,7 +154,7 @@ fn git_index<'a>(
             };
             by_db.insert(
                 b.database.as_str(),
-                (st, role, b.branch.clone(), b.worktree_path.clone(), b.oid),
+                entry(role, &b.branch, &b.worktree_path, b.oid, false),
             );
         }
         for s in &st.snapshots {
@@ -146,12 +164,12 @@ fn git_index<'a>(
             };
             by_db.insert(
                 s.database.as_str(),
-                (st, Role::GitSnapshot, label.clone(), String::new(), s.oid),
+                entry(Role::GitSnapshot, &label, "", s.oid, false),
             );
             if !s.staging.is_empty() {
                 by_db.insert(
                     s.staging.as_str(),
-                    (st, Role::GitSnapshot, label, String::new(), 0),
+                    entry(Role::GitSnapshot, &label, "", 0, true),
                 );
             }
         }
@@ -328,10 +346,16 @@ pub fn build(inp: Inputs) -> TopSnapshot {
                 } else {
                     DeadlineKind::IdleTtl
                 });
+                // The source's Git entry counts only if it verifies against
+                // the source database's live OID (a reused name does not).
                 let worktree = gi
                     .by_db
                     .get(m.source.as_str())
-                    .map(|(_, _, _, wt, _)| wt.clone())
+                    .filter(|g| {
+                        live.get(m.source.as_str())
+                            .is_some_and(|r| g.verifies(r.oid))
+                    })
+                    .map(|g| g.worktree.clone())
                     .filter(|w| !w.is_empty());
                 d.agent = Some(Agent {
                     host: m.host.clone(),
@@ -365,15 +389,15 @@ pub fn build(inp: Inputs) -> TopSnapshot {
             }
         }
         if d.agent.is_none() {
-            if let Some((st, role, branch, wt, oid)) = gi.by_db.get(row.name.as_str()) {
-                // OID 0: not recorded (staging); otherwise it must match.
-                if *oid == 0 || *oid == row.oid {
-                    d.role = *role;
+            if let Some(g) = gi.by_db.get(row.name.as_str()) {
+                // Recorded OIDs must match; only staging may lack one.
+                if g.verifies(row.oid) {
+                    d.role = g.role;
                     d.git = Some(GitInfo {
-                        repo_id: st.repo_id.clone(),
-                        repo_name: sanitize(&st.repo_name),
-                        branch: branch.clone(),
-                        worktree_path: wt.clone(),
+                        repo_id: g.st.repo_id.clone(),
+                        repo_name: sanitize(&g.st.repo_name),
+                        branch: g.branch.clone(),
+                        worktree_path: g.worktree.clone(),
                     });
                 }
             }
@@ -482,18 +506,37 @@ pub const SIZES_SQL: &str = "SELECT d.oid, pg_database_size(d.oid) FROM pg_datab
 pub const UPTIME_SQL: &str =
     "SELECT extract(epoch FROM now() - pg_postmaster_start_time())::bigint";
 
-pub fn parse_catalog(rows: &[crate::pgwire::Row]) -> Vec<CatalogRow> {
-    rows.iter()
-        .filter_map(|r| {
+/// All or nothing: a result that is not exactly the catalog query's shape
+/// (five columns, every row well-formed) is rejected, so a response that
+/// belongs to another statement can never pass for an empty catalog.
+pub fn parse_catalog(r: &crate::pgwire::QueryResult) -> Option<Vec<CatalogRow>> {
+    if r.columns.len() != 5 {
+        return None;
+    }
+    r.rows
+        .iter()
+        .map(|r| {
+            if r.len() != 5 {
+                return None;
+            }
             Some(CatalogRow {
-                oid: r.first()?.as_deref()?.parse().ok()?,
-                name: r.get(1)?.clone()?,
-                is_template: r.get(2)?.as_deref() == Some("t"),
-                invalid: r.get(3)?.as_deref() == Some("t"),
-                connections: r.get(4)?.as_deref().and_then(|s| s.parse().ok()),
+                oid: r[0].as_deref()?.parse().ok()?,
+                name: r[1].clone()?,
+                is_template: r[2].as_deref() == Some("t"),
+                invalid: r[3].as_deref() == Some("t"),
+                connections: Some(r[4].as_deref()?.parse().ok()?),
             })
         })
         .collect()
+}
+
+/// An I/O or protocol error can leave part of a response unread on the
+/// socket; the connection must not be reused after one.
+fn wire_broken(e: &crate::pgwire::WireError) -> bool {
+    matches!(
+        e,
+        crate::pgwire::WireError::Io(_) | crate::pgwire::WireError::Protocol(_)
+    )
 }
 
 /// The live, read-only collector. One instance per `pgx top` process; the UI
@@ -610,28 +653,38 @@ impl LiveCollector {
         }
         let (_, client) = self.client.as_mut().expect("connected above");
         let catalog = match client.simple_query(CATALOG_SQL) {
-            Ok(r) => parse_catalog(&r.rows),
+            Ok(r) => match parse_catalog(&r) {
+                Some(c) => c,
+                None => {
+                    inp.errors.push(Warning::issue(
+                        "catalog_query_failed",
+                        "catalog query returned an unexpected result; reconnecting",
+                    ));
+                    self.client = None;
+                    return build(inp);
+                }
+            },
             Err(e) => {
-                let io = matches!(
-                    e,
-                    crate::pgwire::WireError::Io(_) | crate::pgwire::WireError::Protocol(_)
-                );
                 inp.errors.push(Warning::issue(
                     "catalog_query_failed",
                     format!("catalog query failed: {}", sanitize(&e.to_string())),
                 ));
-                if io {
+                if wire_broken(&e) {
                     self.client = None;
                 }
                 return build(inp);
             }
         };
         inp.runtime.status = RuntimeStatus::Running;
-        inp.runtime.uptime_seconds = client
-            .simple_query(UPTIME_SQL)
-            .ok()
-            .and_then(|r| r.scalar().and_then(|s| s.parse().ok()));
-        if self.runtime_fn != Some(false) {
+        // The catalog above is complete and valid; a failure below only
+        // costs this refresh its secondary metrics, and a broken
+        // connection is replaced before the next one.
+        let mut broken = false;
+        match client.simple_query(UPTIME_SQL) {
+            Ok(r) => inp.runtime.uptime_seconds = r.scalar().and_then(|s| s.parse().ok()),
+            Err(e) => broken |= wire_broken(&e),
+        }
+        if !broken && self.runtime_fn != Some(false) {
             match client.simple_query("SELECT pgrust_runtime_status()") {
                 Ok(r) => {
                     self.runtime_fn = Some(true);
@@ -644,16 +697,16 @@ impl LiveCollector {
                         .and_then(|x| x.as_u64());
                 }
                 Err(crate::pgwire::WireError::Db(_)) => self.runtime_fn = Some(false),
-                Err(_) => {}
+                Err(e) => broken |= wire_broken(&e),
             }
         }
         if inp.runtime.rss_bytes.is_none() {
             inp.runtime.rss_bytes = process_rss(pid);
         }
         let due = self.sizes_at.is_none_or(|t| t.elapsed() >= self.size_every);
-        if due {
+        if due && !broken {
             match client.simple_query(SIZES_SQL) {
-                Ok(r) => {
+                Ok(r) if r.columns.len() == 2 => {
                     self.sizes = r
                         .rows
                         .iter()
@@ -665,12 +718,23 @@ impl LiveCollector {
                         })
                         .collect();
                 }
-                Err(e) => inp.errors.push(Warning::info(
-                    "size_sample_failed",
-                    format!("database sizes not refreshed: {}", sanitize(&e.to_string())),
-                )),
+                Ok(_) => broken = true,
+                Err(e) => {
+                    broken |= wire_broken(&e);
+                    inp.errors.push(Warning::info(
+                        "size_sample_failed",
+                        format!("database sizes not refreshed: {}", sanitize(&e.to_string())),
+                    ));
+                }
             }
             self.sizes_at = Some(Instant::now());
+        }
+        if broken {
+            inp.errors.push(Warning::info(
+                "runtime_query_interrupted",
+                "a runtime query timed out or broke the connection; reconnecting next refresh",
+            ));
+            self.client = None;
         }
         inp.sizes = self.sizes.clone();
         inp.catalog = Some(catalog);
@@ -1034,28 +1098,99 @@ mod tests {
         assert_eq!(project_name("/x/\x1b[31mevil", "id"), "?[31mevil");
     }
 
+    fn qr(cols: usize, rows: Vec<Vec<Option<&str>>>) -> crate::pgwire::QueryResult {
+        crate::pgwire::QueryResult {
+            columns: (0..cols).map(|i| format!("c{i}")).collect(),
+            rows: rows
+                .into_iter()
+                .map(|r| r.into_iter().map(|v| v.map(String::from)).collect())
+                .collect(),
+            tags: vec![],
+        }
+    }
+
     #[test]
-    fn catalog_rows_parse_and_skip_garbage() {
-        let rows = vec![
-            vec![
-                Some("5".into()),
-                Some("postgres".into()),
-                Some("f".into()),
-                Some("f".into()),
-                Some("2".into()),
-            ],
-            vec![
-                Some("x".into()),
-                Some("bad".into()),
-                Some("f".into()),
-                Some("f".into()),
-                Some("0".into()),
-            ],
-            vec![Some("6".into())],
-        ];
-        let p = parse_catalog(&rows);
+    fn catalog_parse_is_all_or_nothing() {
+        let good = vec![Some("5"), Some("postgres"), Some("f"), Some("f"), Some("2")];
+        let p = parse_catalog(&qr(5, vec![good.clone()])).unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].connections, Some(2));
+        assert_eq!(
+            parse_catalog(&qr(5, vec![])),
+            Some(vec![]),
+            "a real empty catalog"
+        );
+        // A leftover response of another statement (sizes: 2 columns,
+        // runtime status: 1) must never read as an empty catalog.
+        assert_eq!(
+            parse_catalog(&qr(2, vec![vec![Some("5"), Some("7000")]])),
+            None
+        );
+        assert_eq!(parse_catalog(&qr(1, vec![vec![Some("{}")]])), None);
+        assert_eq!(
+            parse_catalog(&qr(2, vec![])),
+            None,
+            "shape is checked even with no rows"
+        );
+        let bad_oid = vec![Some("x"), Some("bad"), Some("f"), Some("f"), Some("0")];
+        assert_eq!(parse_catalog(&qr(5, vec![good.clone(), bad_oid])), None);
+        assert_eq!(parse_catalog(&qr(5, vec![good, vec![Some("6")]])), None);
+    }
+
+    #[test]
+    fn git_entries_without_a_recorded_oid_and_reused_source_names_do_not_verify() {
+        let st = RepoState::from_json(
+            &serde_json::json!({
+                "schema": 1, "repo_id": "r1", "repo_name": "remotely", "repo_slug": "remotely",
+                "common_dir": "/w/.git", "main_branch": "main", "cluster_id": CL,
+                "branches": [
+                    {"role": "branch", "worktree_id": "w0", "worktree_path": "/w", "branch": "no-oid",
+                     "database": "remotely_no_oid", "source": "s", "created_at": 1, "last_used": 1},
+                    {"role": "branch", "worktree_id": "w0", "worktree_path": "/w/feature", "branch": "feature",
+                     "database": "remotely_feature", "oid": 51, "source": "s", "created_at": 1, "last_used": 1}
+                ],
+                "snapshots": [{"generation": null, "database": "remotely_snap_g2", "staging": "remotely_snap_stage",
+                               "oid": 0, "state": "creating"}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut m = meta("p", "s", None);
+        m.source = "remotely_feature".into();
+        m.git_scope = Some("sc".into());
+        m.git_branch = Some("feature".into());
+        let mut i = inputs(
+            vec![
+                row(60, "remotely_no_oid", 0),
+                row(61, "remotely_snap_stage", 0),
+                row(99, "remotely_feature", 0), // the name now belongs to another incarnation
+                row(70, "agent-x", 0),
+            ],
+            vec![rec("agent-x", 70, Some(m))],
+        );
+        i.git = vec![st];
+        let s = build(i);
+        assert_eq!(
+            by_name(&s, "remotely_no_oid").role,
+            Role::Standalone,
+            "missing OID is unverified"
+        );
+        assert_eq!(
+            by_name(&s, "remotely_snap_stage").role,
+            Role::GitSnapshot,
+            "staging may lack one"
+        );
+        assert_eq!(by_name(&s, "remotely_feature").role, Role::Standalone);
+        let a = by_name(&s, "agent-x").agent.clone().unwrap();
+        assert_eq!(
+            a.worktree, None,
+            "worktree of a reused source name is not shown"
+        );
+        assert_eq!(
+            a.git_branch.as_deref(),
+            Some("feature"),
+            "the record's own label stays"
+        );
     }
 
     #[test]

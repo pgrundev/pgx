@@ -184,7 +184,14 @@ pub fn list(home_root: &Path) -> (Vec<PhaseRecord>, usize) {
     let Ok(entries) = std::fs::read_dir(dir(home_root)) else {
         return (ok, bad);
     };
-    for entry in entries.flatten().take(MAX_FILES) {
+    let mut seen = 0usize;
+    for entry in entries.flatten() {
+        seen += 1;
+        if seen > MAX_FILES {
+            // Counted, not read: the warning says some reports were skipped.
+            bad += 1;
+            continue;
+        }
         let p = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();

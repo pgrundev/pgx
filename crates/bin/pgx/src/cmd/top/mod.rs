@@ -223,13 +223,17 @@ fn filter_project(mut s: model::TopSnapshot, p: &str) -> model::TopSnapshot {
         };
         let keep: std::collections::HashSet<usize> =
             tree::filtered(&dbs, &view).into_iter().collect();
-        s.databases = Some(
-            dbs.into_iter()
-                .enumerate()
-                .filter(|(i, _)| keep.contains(i))
-                .map(|(_, d)| d)
-                .collect(),
-        );
+        let kept: Vec<model::Database> = dbs
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| keep.contains(i))
+            .map(|(_, d)| d)
+            .collect();
+        // Warnings about a database outside the filter go with it.
+        let names: std::collections::HashSet<&str> = kept.iter().map(|d| d.name.as_str()).collect();
+        s.warnings
+            .retain(|w| w.database.as_deref().is_none_or(|n| names.contains(n)));
+        s.databases = Some(kept);
     }
     s
 }

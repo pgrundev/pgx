@@ -30,6 +30,48 @@ impl Source {
             Source::Demo(start) => super::demo::snapshot(start.elapsed().as_secs()),
         }
     }
+
+    /// One collection that survives a panic in the collector: the state is
+    /// reset (a fresh connection next time) and the panic becomes an ISSUE
+    /// in a snapshot whose catalog is unknown — so it can never read as
+    /// "every database dropped".
+    pub fn collect_guarded(&mut self) -> TopSnapshot {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.collect())) {
+            Ok(s) => s,
+            Err(p) => {
+                if let Source::Live(c) = self {
+                    **c = super::collect::LiveCollector::new();
+                }
+                crash_snapshot(panic_message(&*p))
+            }
+        }
+    }
+}
+
+pub const COLLECTOR_THREAD: &str = "pgx-top-collector";
+
+fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".into())
+}
+
+pub fn crash_snapshot(msg: String) -> TopSnapshot {
+    use super::model::*;
+    TopSnapshot {
+        mode: Mode::Live,
+        collected_at: crate::fsutil::now_epoch(),
+        runtime: Runtime::empty(RuntimeStatus::Error),
+        databases: None,
+        warnings: vec![Warning::issue(
+            "collector_panicked",
+            format!(
+                "the collector failed and was restarted: {}",
+                super::text::sanitize(&msg)
+            ),
+        )],
+    }
 }
 
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
@@ -63,6 +105,11 @@ impl TerminalGuard {
         .map_err(|e| PgxError::failure(format!("cannot open the alternate screen: {e}")))?;
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
+            // A collector panic is caught on its thread and shown as an
+            // ISSUE; the UI keeps the terminal. Anything else restores it.
+            if std::thread::current().name() == Some(COLLECTOR_THREAD) {
+                return;
+            }
             restore_terminal();
             prev(info);
         }));
@@ -127,13 +174,13 @@ pub fn run(
     let (snap_tx, snap_rx) = mpsc::sync_channel::<TopSnapshot>(1);
     let (ctl_tx, ctl_rx) = mpsc::channel::<Ctl>();
     std::thread::Builder::new()
-        .name("pgx-top-collector".into())
+        .name(COLLECTOR_THREAD.into())
         .spawn(move || loop {
             match ctl_rx.recv_timeout(interval) {
                 Ok(Ctl::Refresh) | Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
-            let s = source.collect();
+            let s = source.collect_guarded();
             if snap_tx.send(s).is_err() {
                 return;
             }
@@ -200,4 +247,36 @@ pub fn run(
     drop(ctl_tx);
     drop(snap_rx);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_crash_is_an_issue_with_an_unknown_catalog() {
+        let s = crash_snapshot("index out of bounds \x1b[2J".into());
+        assert_eq!(s.databases, None, "unknown, never 'all dropped'");
+        assert_eq!(s.summary().issues, 1);
+        assert!(!s.warnings[0].message.contains('\x1b'));
+        let mut log = super::super::events::EventLog::default();
+        let mut ok =
+            super::super::model::fixtures::snap(vec![super::super::model::fixtures::standalone(
+                5, "postgres",
+            )]);
+        log.observe(&ok);
+        log.observe(&s);
+        ok.collected_at += 2;
+        log.observe(&ok);
+        let t: Vec<String> = log.recent().map(|e| e.text.clone()).collect();
+        assert!(t.iter().all(|e| !e.contains("dropped")), "{t:?}");
+    }
+
+    #[test]
+    fn panic_messages_are_extracted() {
+        let r = std::panic::catch_unwind(|| panic!("boom {}", 1));
+        assert_eq!(panic_message(&*r.unwrap_err()), "boom 1");
+        let r = std::panic::catch_unwind(|| panic!("static"));
+        assert_eq!(panic_message(&*r.unwrap_err()), "static");
+    }
 }

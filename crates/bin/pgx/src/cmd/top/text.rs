@@ -14,7 +14,14 @@ use unicode_width::UnicodeWidthChar;
 fn is_bidi_control(c: char) -> bool {
     matches!(
         c,
-        '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
+        '\u{202A}'..='\u{202E}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{2060}'
+            | '\u{FEFF}'
+            | '\u{061C}'
     )
 }
 
@@ -169,6 +176,11 @@ mod tests {
         assert_eq!(sanitize("x\u{7f}y"), "x?y");
         assert_eq!(sanitize("abc\u{202E}fed"), "abc?fed");
         assert_eq!(sanitize("\u{2066}x\u{2069}"), "?x?");
+        assert_eq!(
+            sanitize("a\u{200B}b\u{FEFF}c\u{2028}d\u{2060}"),
+            "a?b?c?d?",
+            "invisible characters and line separators"
+        );
         assert!(!sanitize("\x1b]0;title\x07").contains('\x1b'));
         assert!(is_clean("ok ünïcødé 漢字"));
         assert!(!is_clean("bad\x1b"));

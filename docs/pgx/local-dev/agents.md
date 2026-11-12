@@ -130,6 +130,23 @@ pgx agent uninstall claude cursor codex                            # remove the 
 pgx branch myapp_template feature-123                              # a hand-made 2h branch, as before
 ```
 
+## Watching the agents: `pgx top`
+
+`pgx top` in a second terminal shows every session and subagent branch live:
+project, Git branch, session, connections, lifecycle (active, retired,
+expired), TTL countdown and size, read-only. Its TASK column shows only
+what an agent reported explicitly:
+
+```sh
+pgx agent activity --state testing --task "Implement OAuth"   # working|migrating|testing|completed|failed
+```
+
+The hooks never report a phase — `SessionEnd`/`SubagentStop` mark the branch
+retired, which is not success. To opt an agent in, ask it (in `CLAUDE.md`,
+`AGENTS.md` or the prompt) to run `pgx agent activity --state testing` before
+the test suite and `--state completed`/`failed` at the end. A report never
+changes the branch or its TTL. Details: [top.md](top.md).
+
 ## Semantics worth knowing
 
 - **Identity.** A session is `(project, host, session id)`; a subagent adds

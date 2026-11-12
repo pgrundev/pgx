@@ -96,6 +96,8 @@ pub enum Command {
     Agent(crate::cmd::agent::AgentCmd),
     /// `pgx git …`: one isolated database per Git branch.
     Git(crate::cmd::git::GitCmd),
+    /// `pgx top`: the live, read-only monitor.
+    Top(crate::cmd::top::TopOpts),
     Doctor,
     /// Hidden: the background TTL cleanup worker, spawned by start/run/serve.
     Supervise,
@@ -109,6 +111,7 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
     // Everything after a bare `--` belongs to a child command (`pgx agent
     // exec -- codex --json`), so global flags stop there.
     let mut passthrough = false;
+    let mut help = false;
     for a in args {
         if passthrough {
             rest.push(a.as_str());
@@ -120,14 +123,31 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
                 rest.push("--");
             }
             "--json" => global.json = true,
-            "--help" | "-h" => return Ok((global, Command::Help)),
+            "--help" | "-h" => help = true,
             "--version" | "-V" => return Ok((global, Command::Version)),
             other => rest.push(other),
         }
     }
+    if help {
+        // `pgx top --help` is the monitor's own page; everything else keeps
+        // the global help it always printed.
+        if rest.first() == Some(&"top") {
+            return Ok((
+                global,
+                Command::Top(crate::cmd::top::TopOpts {
+                    help: true,
+                    ..Default::default()
+                }),
+            ));
+        }
+        return Ok((global, Command::Help));
+    }
     let Some((&name, tail)) = rest.split_first() else {
         return Ok((global, Command::Help));
     };
+    if name == "top" {
+        return Ok((global, Command::Top(crate::cmd::top::parse(tail)?)));
+    }
     if name == "agent" {
         return Ok((global, Command::Agent(crate::cmd::agent::parse(tail)?)));
     }
@@ -405,6 +425,9 @@ Agents (one isolated database per coding-agent session)
                           the same --id attaches to it). Inside a Claude Code or Codex
                           session it attaches to that session's branch instead.
   pgx agent ls            agent branches: host, session, agent, source, expires-in
+  pgx agent activity --state working|migrating|testing|completed|failed [--task <label>]
+                          report this session's task phase for `pgx top` (explicit only;
+                          never changes the branch, its TTL or its lifecycle)
   pgx agent up|touch|down|env|hook|install|uninstall
                           lifecycle primitives (see docs/pgx/local-dev/agents.md)
 
@@ -425,6 +448,14 @@ Git (one Git branch, one isolated database, automatically)
   pgx git prune [--apply] [--grace <dur>]
                           abandoned branch databases (dry run unless --apply)
   pgx git doctor | uninstall [--shell] | shell <sh> | install-shell [<sh>]
+
+Monitor
+  pgx top [--interval-ms N] [--no-color] [--project <filter>]
+                          live, read-only terminal view of the runtime, its databases
+                          and agent sessions (connections, TTLs, lifecycle, task phase)
+  pgx top --demo          the same view on a simulated five-agent session (no PGX needed)
+  pgx [--json] top --snapshot [--demo]
+                          one collection as text, or one JSON object with --json
 
 Tools
   pgx doctor              check the installation, data directory, port, storage
@@ -823,6 +854,109 @@ mod tests {
             parse(&args("agent hook --host cursor")).unwrap().1,
             Command::Agent(AgentCmd::Hook(_))
         ));
+    }
+
+    #[test]
+    fn parse_top_and_its_help() {
+        use crate::cmd::top::TopOpts;
+        assert_eq!(
+            parse(&args("top")).unwrap().1,
+            Command::Top(TopOpts::default())
+        );
+        let (g, c) = parse(&args("--json top --snapshot --demo")).unwrap();
+        assert!(g.json);
+        match c {
+            Command::Top(o) => assert!(o.snapshot && o.demo && !o.help),
+            other => panic!("{other:?}"),
+        }
+        let (g, c) = parse(&args("top --snapshot --json")).unwrap();
+        assert!(g.json, "--json is global, after the subcommand too");
+        assert!(matches!(c, Command::Top(TopOpts { snapshot: true, .. })));
+        for (s, ms) in [
+            ("top --interval-ms 250", 250),
+            ("top --interval-ms=10000", 10_000),
+        ] {
+            match parse(&args(s)).unwrap().1 {
+                Command::Top(o) => assert_eq!(o.interval_ms, ms),
+                other => panic!("{other:?}"),
+            }
+        }
+        for bad in [
+            "top --interval-ms 0",
+            "top --interval-ms -1",
+            "top --interval-ms 10001",
+            "top --interval-ms x",
+            "top --interval-ms",
+            "top --bogus",
+            "top extra",
+        ] {
+            assert_eq!(
+                parse(&args(bad)).unwrap_err().code,
+                ExitCode::Usage,
+                "{bad}"
+            );
+        }
+        // `pgx top --help` is the monitor's page; other commands keep the global one.
+        assert!(matches!(
+            parse(&args("top --help")).unwrap().1,
+            Command::Top(TopOpts { help: true, .. })
+        ));
+        assert!(matches!(
+            parse(&args("top -h --demo")).unwrap().1,
+            Command::Top(TopOpts { help: true, .. })
+        ));
+        assert_eq!(parse(&args("status --help")).unwrap().1, Command::Help);
+        assert_eq!(
+            parse(&args("--help top")).unwrap().1,
+            Command::Top(TopOpts {
+                help: true,
+                ..Default::default()
+            })
+        );
+        assert!(help_text().contains("pgx top"));
+        assert!(help_text().contains("pgx agent activity"));
+    }
+
+    #[test]
+    fn parse_agent_activity() {
+        use crate::cmd::agent::AgentCmd;
+        match parse(&args(
+            "agent activity --state testing --task OAuth --id s1 --agent a1",
+        ))
+        .unwrap()
+        .1
+        {
+            Command::Agent(AgentCmd::Activity(o)) => {
+                assert_eq!(o.state, "testing");
+                assert_eq!(o.task.as_deref(), Some("OAuth"));
+                assert_eq!(o.id.as_deref(), Some("s1"));
+                assert_eq!(o.agent.as_deref(), Some("a1"));
+            }
+            other => panic!("{other:?}"),
+        }
+        for bad in [
+            "agent activity",
+            "agent activity --task x",
+            "agent activity --state done",
+            "agent activity --state testing extra",
+            "agent activity --state testing --ttl 1h",
+            "agent activity --state",
+        ] {
+            assert_eq!(
+                parse(&args(bad)).unwrap_err().code,
+                ExitCode::Usage,
+                "{bad}"
+            );
+        }
+        // The new value flags do not change other subcommands' contracts.
+        assert_eq!(
+            parse(&args("agent up --state x")).unwrap_err().code,
+            ExitCode::Usage
+        );
+        assert_eq!(
+            parse(&args("agent touch --task x")).unwrap_err().code,
+            ExitCode::Usage
+        );
     }
 
     #[test]

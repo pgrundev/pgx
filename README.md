@@ -409,6 +409,18 @@ shell's environment, so commands run with `pgx git exec -- …`, or
 `pgx git install-shell` refreshes `DATABASE_URL` at every prompt. Details:
 [`git.md`](docs/pgx/local-dev/git.md).
 
+### Watch every agent's database live
+
+```bash
+pgx top            # project → Git branch → session → subagent, live connections, TTLs, lifecycle
+pgx top --demo     # try it without PGX: a simulated session with five agents
+pgx agent activity --state testing --task "Implement OAuth"   # what an agent reports shows in TASK
+```
+
+Read-only and native (a Ratatui terminal UI); `pgx --json top --snapshot`
+gives the same view as one JSON object. Details:
+[`top.md`](docs/pgx/local-dev/top.md).
+
 ### Keep your Postgres, branch it in PGX (by hand)
 
 The same thing without an agent. Copy PostgreSQL into PGX once, then give
@@ -448,6 +460,7 @@ Details, limitations and measurements: [`copy.md`](docs/pgx/local-dev/copy.md).
 | [`local-dev/agents.md`](docs/pgx/local-dev/agents.md) | the PGX Skill and `pgx agent`: automatic per-session isolation for Claude Code, Cursor and Codex |
 | [`local-dev/git.md`](docs/pgx/local-dev/git.md) | PGX Git: one database per Git branch and worktree, main snapshots, shell integration, agents |
 | [`local-dev/copy.md`](docs/pgx/local-dev/copy.md) | `pgx copy`: import an existing PostgreSQL database and branch it per agent |
+| [`local-dev/top.md`](docs/pgx/local-dev/top.md) | `pgx top`: a live, read-only terminal view of the runtime, its databases and every agent session; `pgx agent activity` task phases |
 | [`pgrun-integration.md`](docs/pgx/pgrun-integration.md) | the host-agent API PGRun builds against |
 | [`lifecycle-memory.md`](docs/pgx/lifecycle-memory.md), [`linux-churn.md`](docs/pgx/linux-churn.md) | memory under long churn, and what was fixed |
 | [`zfs-cow.md`](docs/pgx/zfs-cow.md) | copy-on-write branch cost and the recordsize trade-off |

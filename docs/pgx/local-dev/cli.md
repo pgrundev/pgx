@@ -72,6 +72,7 @@ the per-host compatibility matrix are in [agents.md](agents.md).
 | `pgx agent up [--id <s>] [--host <h>] [--agent <id>] [--source <db>] [--ttl <dur>] [--env] [--cwd <dir>]` | Ensure this session's (or subagent's) branch: create it (a clone of the source with the idle TTL and the `.pgx.toml` guards applied) or extend the existing one. `--env` prints `export` lines. Session id and host default to the surrounding agent's variables (`CLAUDE_CODE_SESSION_ID`, `CODEX_SESSION_ID`), the agent id to `PGX_AGENT_ID`. Refuses a busy source (exit 6) and a missing named source (exit 5); the default source `app` is created empty when absent. |
 | `pgx agent touch [--id <s>] [--host <h>] [--agent <id>]` | Activity: move the deadline to now + idle TTL (at most once per 30 s; no connection). |
 | `pgx agent down [--id <s>] [--host <h>] [--agent <id>] [--branch <name>] [--now \| --grace <dur>]` | Session end: terminate the branch's backends (the cancellation barrier; reported as `backends_terminated`/`backends_remaining`), then retire the branch (grace period, default 10m) so a resume finds it, or `--now` drop it. Only a branch recorded for that exact session (and subagent) is ever touched; `--branch` refuses to act unless that is the branch. `--id` without `--host` finds the branch under whichever host label it has. |
+| `pgx agent activity --state working\|migrating\|testing\|completed\|failed [--task <label>] [--id <s>] [--host <h>] [--agent <id>] [--cwd <dir>]` | Report this session's (or subagent's) task phase for `pgx top`'s TASK column. Attaches only to the branch the identity verifiably owns (unexpired record, live OID in this cluster: exit 5 / 4 otherwise); inside a host session an `--id` for another session is refused (exit 4). `--task`: ≤ 80 characters of plain text. Stored in `$PGX_HOME/top/phases/` (0600); never changes the branch, its TTL or its lifecycle. Hooks never report a phase. See [top.md](top.md#reporting-a-task-phase-agents-and-ci). |
 | `pgx agent env [--id <s>] [--host <h>] [--agent <id>] [--cwd <dir>]` | The `export` lines for an existing session's branch; `eval "$(pgx agent env)"`. |
 | `pgx agent hook [--host claude\|cursor\|codex]` | The command the hosts' hook files run: reads the host payload on stdin, detects the host and event, and answers in its dialect (Claude: `CLAUDE_ENV_FILE` exports plus a context line on `SessionStart`; `additionalContext` on `SubagentStart`; `updatedInput` (the command rewritten to `<pgx> agent exec --agent <id> --cwd <project> -- <shell> -c '<command>'`) or `permissionDecision: deny` on a subagent's `PreToolUse` for Bash; Cursor: `{"env":…,"additional_context":…}`; Codex: `additionalContext`). Never exits 2. Fails closed with an unreachable sentinel `DATABASE_URL` (session) or a refusal (subagent command) when the project has `.pgx.toml` and no branch could be made. Logs every delivery to `~/.pgx/agent/hooks.log`. |
 | `pgx agent install [claude] [cursor] [codex] [--scope …] [--source <db>]` / `uninstall` | Merge our entries into (or remove them from) `.claude/settings.json`, `.cursor/hooks.json`, `.codex/hooks.json` (or the `--scope local`/`user` files), leaving every other entry untouched. |
@@ -97,6 +98,17 @@ semantics: [git.md](git.md).
 | `pgx git uninstall [--shell]` | Remove PGX's hook blocks (and hook files it created); `--shell` also the shell integration. Databases and `.pgx.toml` are kept. |
 | `pgx git shell <bash\|zsh\|fish>` / `pgx git install-shell [<sh>]` | Print the prompt integration / add it (one marked block) to the shell's rc file. |
 | `pgx git hook <name> [args…]` | What the installed hooks run. Never fails Git. |
+
+## Monitor: `pgx top`
+
+A live, read-only terminal view of the runtime, its databases and the agent
+sessions that own them. Full guide, semantics and JSON schema: [top.md](top.md).
+
+| Command | What it does |
+|---|---|
+| `pgx top [--interval-ms N] [--no-color] [--project <filter>]` | Interactive monitor (needs a TTY; exit 2 otherwise, pointing to `--snapshot`): project → Git branch → session → subagent tree with DB state (connections), lifecycle, explicit task phase, connections, logical size, age and TTL countdown; details pane, search, sort, flat/agents-only views, pause. Refresh 250–10000 ms (default 1000). No key changes anything. Exit 3 (and nothing created) when PGX is not initialised. |
+| `pgx top --demo` | The same view on a deterministic simulated five-agent session, labelled `DEMO / SIMULATED`; needs no PGX home and touches no runtime. |
+| `pgx [--json] top --snapshot [--demo] [--project <filter>]` | One collection: plain text, or with `--json` one object (`schema_version` 1: `runtime`, `summary`, `databases` — `null` when the catalog is unavailable — and `warnings`). Exit 0 running (or demo), 3 not initialised/not running. `pgx --json top` without `--snapshot` is a usage error. |
 
 ## Import from PostgreSQL
 

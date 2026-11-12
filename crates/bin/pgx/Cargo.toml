@@ -17,5 +17,10 @@ failpoints = []
 [dependencies]
 libc = "0.2"
 serde_json = { version = "1", features = ["preserve_order"] }
+# `pgx top`: the terminal UI. Default features off: only the crossterm backend
+# (no termion/termwiz, no serde, no underline-color/macros extras).
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
+unicode-width = "0.2"
 
 [dev-dependencies]

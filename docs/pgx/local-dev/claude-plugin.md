@@ -73,7 +73,7 @@ branch. See [agents.md](agents.md) for what that gives you.
 Check what is installed:
 
 ```sh
-claude plugin list             # pgx@pgx-plugin  Version: 0.1.2  Status: enabled
+claude plugin list             # pgx@pgx-plugin  Version: 0.1.3  Status: enabled
 claude plugin details pgx      # Component inventory: Skills (1) pgx, Hooks (0), MCP servers (0)
 ```
 
@@ -81,8 +81,9 @@ claude plugin details pgx      # Component inventory: Skills (1) pgx, Hooks (0),
 
 - `skills/pgx/`: the Skill, its eleven reference documents and two helper
   scripts, identical to `skills/pgx/` at the repository root.
-- `.claude-plugin/plugin.json`: name `pgx`, version `0.1.2` (the Skill's
-  version), display name, links.
+- `.claude-plugin/plugin.json`: name `pgx`, version `0.1.3` (the Skill's
+  version; it moves independently of the PGX runtime version, which the
+  skill requires to be 0.1.2 or newer), display name, links.
 - `README.md`.
 
 In `pgrundev/pgx-plugin` additionally `LICENSE` (the AGPL-3.0 text the
@@ -254,7 +255,7 @@ CLI does not check and a security scan. Values for the form:
 | Plugin name / display name | `pgx` / "PGX — Postgres for Agents" (read from `plugin.json`) |
 | Description | PGX gives every Claude Code agent its own isolated, disposable PostgreSQL-compatible database. Agents can run migrations, tests, and experiments in parallel without database conflicts. No Docker or cloud account required. Built in Rust. |
 | Category | Developer tools, or Databases if the form offers it |
-| Version | 0.1.2 |
+| Version | 0.1.3 (plugin and skill); requires PGX runtime 0.1.2 or newer |
 | License | AGPL-3.0 (`LICENSE` in the repository, `license` in `plugin.json`) |
 | Documentation / support | https://github.com/pgrundev/pgx (`documentationUrl`, `supportUrl` in `plugin.json`) |
 | Icon | none yet; the directory takes the icon from the first submission only, so add a square PNG (512–2048 px) as `.claude-plugin/icon.png` in `plugins/pgx` before submitting if one is wanted |

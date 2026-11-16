@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Package the canonical Skill (skills/pgx) for Claude Code.
+# Package the canonical Skill (skills/pgboxdb) for Claude Code.
 #
-#   plugins/sync.sh                         skills/pgx -> plugins/pgx/skills/pgx
-#   plugins/sync.sh --check                 exit 1 if plugins/pgx/skills/pgx drifted
+#   plugins/sync.sh                         skills/pgboxdb -> plugins/pgboxdb/skills/pgboxdb
+#   plugins/sync.sh --check                 exit 1 if plugins/pgboxdb/skills/pgboxdb drifted
 #   plugins/sync.sh --standalone <dir>      assemble the standalone plugin repository
-#                                           (github.com/pgrundev/pgx-plugin) into <dir>
-#   plugins/sync.sh --check-standalone <dir>  exit 1 if a pgx-plugin checkout drifted
+#                                           (github.com/pgrundev/pgboxdb-plugin) into <dir>
+#   plugins/sync.sh --check-standalone <dir>  exit 1 if a pgboxdb-plugin checkout drifted
 #
-# The plugin copy of the skill is generated: edit skills/pgx, run this script,
+# The plugin copy of the skill is generated: edit skills/pgboxdb, run this script,
 # commit both. CI runs `--check` so the two copies cannot diverge.
 #
 # The standalone repository is generated too. It is exactly:
-#   plugins/pgx/*            the plugin package (manifest, README, skills/pgx)
+#   plugins/pgboxdb/*            the plugin package (manifest, README, skills/pgboxdb)
 #   LICENSE                  the repository licence (AGPL-3.0), required by the directory
 #   plugins/standalone/*     the overlay only that repository needs: its one-entry
 #                            marketplace manifest and its validation workflow
@@ -20,8 +20,8 @@
 # standalone repository's own workflow runs `--check-standalone` against main.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
-src="$repo/skills/pgx"
-dst="$repo/plugins/pgx/skills/pgx"
+src="$repo/skills/pgboxdb"
+dst="$repo/plugins/pgboxdb/skills/pgboxdb"
 overlay="$repo/plugins/standalone"
 
 assemble_standalone() { # $1: destination (created; contents other than .git replaced)
@@ -36,7 +36,7 @@ assemble_standalone() { # $1: destination (created; contents other than .git rep
   else
     mkdir -p "$out"
   fi
-  cp -R "$repo/plugins/pgx/." "$out/"
+  cp -R "$repo/plugins/pgboxdb/." "$out/"
   cp "$repo/LICENSE" "$out/LICENSE"
   cp -R "$overlay/." "$out/"
   find "$out" -name .DS_Store -delete
@@ -46,7 +46,7 @@ assemble_standalone() { # $1: destination (created; contents other than .git rep
 case "${1:-}" in
   --check)
     if [ -d "$dst" ] && diff -r "$src" "$dst" >/dev/null; then exit 0; fi
-    echo "plugins/pgx/skills/pgx is out of date with skills/pgx; run plugins/sync.sh" >&2
+    echo "plugins/pgboxdb/skills/pgboxdb is out of date with skills/pgboxdb; run plugins/sync.sh" >&2
     diff -r "$src" "$dst" 2>&1 | head -20 >&2 || true
     exit 1 ;;
   --standalone)
@@ -59,20 +59,20 @@ case "${1:-}" in
   --check-standalone)
     dir=${2:?usage: plugins/sync.sh --check-standalone <dir>}
     [ -d "$dir" ] || { echo "no such directory: $dir" >&2; exit 1; }
-    tmp=$(mktemp -d "${TMPDIR:-/tmp}/pgx-standalone.XXXX"); trap 'rm -rf "$tmp"' EXIT
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/pgboxdb-standalone.XXXX"); trap 'rm -rf "$tmp"' EXIT
     assemble_standalone "$tmp/expected" >/dev/null
     if diff -r --exclude=.git "$tmp/expected" "$dir" >"$tmp/diff" 2>&1; then
-      echo "standalone plugin repository matches plugins/pgx + LICENSE + plugins/standalone"; exit 0
+      echo "standalone plugin repository matches plugins/pgboxdb + LICENSE + plugins/standalone"; exit 0
     fi
     echo "standalone plugin repository drifted from the canonical plugin (run plugins/sync.sh --standalone $dir):" >&2
     head -40 "$tmp/diff" >&2
     exit 1 ;;
   "")
-    if find "$src" -type l | grep -q .; then echo "skills/pgx must not contain symlinks" >&2; exit 1; fi
+    if find "$src" -type l | grep -q .; then echo "skills/pgboxdb must not contain symlinks" >&2; exit 1; fi
     rm -rf "$dst"
     mkdir -p "$(dirname "$dst")"
     cp -R "$src" "$dst"
     find "$dst" -name .DS_Store -delete
-    echo "synced skills/pgx -> plugins/pgx/skills/pgx ($(find "$dst" -type f | wc -l | tr -d ' ') files)" ;;
+    echo "synced skills/pgboxdb -> plugins/pgboxdb/skills/pgboxdb ($(find "$dst" -type f | wc -l | tr -d ' ') files)" ;;
   *) echo "usage: plugins/sync.sh [--check | --standalone <dir> | --check-standalone <dir>]" >&2; exit 2 ;;
 esac

@@ -123,12 +123,12 @@ fn table_counts_match_compiled_backend_shape() {
     // connection-scaling D6 admission bypass (pgrust-only, same doc, ruling
     //   2026-09-14): Bool +1 pgrust.admission_bypass (-> 147), String +1
     //   pgrust.admission_bypass_applications (-> 90) = 500.
-    // PGX memory limits (pgrust-only, docs/pgx/memory-limits.md, 4bf2fc8665):
+    // PGBoxDB memory limits (pgrust-only, docs/pgboxdb/memory-limits.md, 4bf2fc8665):
     //   Int +3 pgrust.session_memory_limit / database_memory_limit /
     //   runtime_memory_limit (-> 185) = 503 (the count was not updated then).
-    // PGX autovacuum idle-skip (pgrust-only, docs/pgx/autovacuum.md): Bool +1
+    // PGBoxDB autovacuum idle-skip (pgrust-only, docs/pgboxdb/autovacuum.md): Bool +1
     //   pgrust.autovacuum_skip_idle_databases (-> 148) = 504.
-    // PGX per-database CPU share (pgrust-only, docs/pgx/linux-noisy-neighbor.md):
+    // PGBoxDB per-database CPU share (pgrust-only, docs/pgboxdb/linux-noisy-neighbor.md):
     //   Int +1 pgrust.ephemeral_db_connection_limit (-> 186) = 505.
     let test_validator = usize::from(cfg!(feature = "oauth-test-validator"));
     assert_eq!(ConfigureNamesBool.len(), 148 + test_validator);

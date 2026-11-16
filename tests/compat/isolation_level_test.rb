@@ -2,7 +2,7 @@
 # SET TRANSACTION error surfaces with its exact message), never a skip.
 require_relative "compat_helper"
 
-class PgxCompat::IsolationLevelTest < PgxCompat::Case
+class PgboxdbCompat::IsolationLevelTest < PgboxdbCompat::Case
   category "TRANSACTION"
 
   # READ COMMITTED: each statement sees commits made before it started.

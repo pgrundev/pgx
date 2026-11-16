@@ -13773,6 +13773,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgboxdb"
+version = "0.1.3"
+dependencies = [
+ "crossterm",
+ "libc",
+ "ratatui",
+ "serde_json",
+ "unicode-width",
+]
+
+[[package]]
 name = "pgclient"
 version = "0.0.0"
 dependencies = [
@@ -14366,17 +14377,6 @@ dependencies = [
  "types_storage",
  "types_tuple",
  "xloginsert",
-]
-
-[[package]]
-name = "pgx"
-version = "0.1.3"
-dependencies = [
- "crossterm",
- "libc",
- "ratatui",
- "serde_json",
- "unicode-width",
 ]
 
 [[package]]

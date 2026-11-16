@@ -1,4 +1,4 @@
-# Contributing to PGX
+# Contributing to PGBoxDB
 
 We are not actively accepting pull requests right now. If you want to help
 out with the project, reach out by email at alex@pgrun.dev.
@@ -9,4 +9,4 @@ if there is a Postgres behavior you want matched.
 ## Contact
 
 - Email: alex@pgrun.dev
-- Updates: <https://github.com/pgrundev/pgx/releases>
+- Updates: <https://github.com/pgrundev/pgboxdb/releases>

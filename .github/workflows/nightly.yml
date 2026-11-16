@@ -22,35 +22,35 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: "1.96.0" }
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked --bin postgres --bin pgx
+      - run: cargo build --release --locked --bin postgres --bin pgboxdb
       - name: Assemble
         run: |
           dist/assemble.sh --out "$RUNNER_TEMP/rel" --version "nightly-${{ github.sha }}" --pg-bindir "$PG18_BINDIR"
-          echo "PGX_DIST=$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name 'pgx-nightly-*')" >> "$GITHUB_ENV"
+          echo "PGBOXDB_DIST=$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name 'pgboxdb-nightly-*')" >> "$GITHUB_ENV"
       - name: Crash recovery (ephemeral + full)
         run: |
-          PGX_TEST_DURABILITY=ephemeral python3 -I tests/pgx/test_crash.py
-          PGX_TEST_DURABILITY=full python3 -I tests/pgx/test_crash.py
+          PGBOXDB_TEST_DURABILITY=ephemeral python3 -I tests/pgboxdb/test_crash.py
+          PGBOXDB_TEST_DURABILITY=full python3 -I tests/pgboxdb/test_crash.py
       - name: Isolation and concurrency
         run: |
-          python3 -I tests/pgx/test_isolation.py
-          python3 -I tests/pgx/test_concurrency.py
+          python3 -I tests/pgboxdb/test_isolation.py
+          python3 -I tests/pgboxdb/test_concurrency.py
       - name: Storage (portable) and clone consistency
         run: |
-          python3 -I tests/pgx/test_storage.py
-          python3 -I tests/pgx/clone_consistency.py
+          python3 -I tests/pgboxdb/test_storage.py
+          python3 -I tests/pgboxdb/clone_consistency.py
       - name: Stress acceptance
-        run: python3 -I tests/pgx/stress.py --cycles 1000 --clients 100 --duration 60 --startstop 50
+        run: python3 -I tests/pgboxdb/stress.py --cycles 1000 --clients 100 --duration 60 --startstop 50
       - name: Compatibility vs PostgreSQL 18 control
         run: tests/compat/run.sh
       - name: Regression baseline
         run: |
           # The ephemeral profile plus the two settings src/test/regress asserts
-          # on (see configs/pgx-regress-overlay.conf). pg_regress exits 1 on any
+          # on (see configs/pgboxdb-regress-overlay.conf). pg_regress exits 1 on any
           # non-byte-exact test, so its status is ignored; the classifier below
           # is the gate and fails only on result (non-plan) differences.
-          cat configs/pgx-ephemeral.conf configs/pgx-regress-overlay.conf > "$RUNNER_TEMP/regress.conf"
-          python3 benchmarks/pgx/regress-baseline.py --out "$RUNNER_TEMP/regress" --binary target/release/postgres --conf "$RUNNER_TEMP/regress.conf" --max-connections 15 || true
-          python3 benchmarks/pgx/classify-regress-diffs.py --fail-on-semantic "$RUNNER_TEMP/regress"
+          cat configs/pgboxdb-ephemeral.conf configs/pgboxdb-regress-overlay.conf > "$RUNNER_TEMP/regress.conf"
+          python3 benchmarks/pgboxdb/regress-baseline.py --out "$RUNNER_TEMP/regress" --binary target/release/postgres --conf "$RUNNER_TEMP/regress.conf" --max-connections 15 || true
+          python3 benchmarks/pgboxdb/classify-regress-diffs.py --fail-on-semantic "$RUNNER_TEMP/regress"
       - name: Application fixtures
         run: tests/apps/run_all.sh

@@ -1,11 +1,11 @@
-name: Publish npm package (pgxdb)
-# Publishes dist/npm as `pgxdb` to npm when a GitHub release is PUBLISHED (the
+name: Publish npm package (pgboxdb)
+# Publishes dist/npm as `pgboxdb` to npm when a GitHub release is PUBLISHED (the
 # draft that release.yml creates is published by hand; that is the trigger).
-# The package version is stamped from the release tag, so `npx pgxdb@<v>`
-# always installs the PGX <v> tarballs from that release.
+# The package version is stamped from the release tag, so `npx pgboxdb@<v>`
+# always installs the PGBoxDB <v> tarballs from that release.
 #
 # Guards against an accidental or unapproved publish:
-#   - runs only in pgrundev/pgx (never in a fork);
+#   - runs only in pgrundev/pgboxdb (never in a fork);
 #   - the release must be published (not a draft) and its tag must be
 #     vX.Y.Z[-pre] on a commit that is on main;
 #   - every supported platform's assets must exist, the package tests must
@@ -14,7 +14,7 @@ name: Publish npm package (pgxdb)
 #     required reviewers on it (Settings → Environments) for a human approval;
 #   - manual runs default to dry_run=true (pack + verify, no publish).
 #
-# Auth: npm trusted publishing (OIDC) when the `pgxdb` package has this
+# Auth: npm trusted publishing (OIDC) when the `pgboxdb` package has this
 # workflow configured as a trusted publisher on npmjs.com; otherwise the
 # NPM_TOKEN repository secret.
 #
@@ -27,7 +27,7 @@ name: Publish npm package (pgxdb)
 # configure trusted publishing for later releases and delete the token.
 #
 # Staging is the DEFAULT (release-triggered runs and manual runs alike): the
-# trusted publisher for pgxdb allows `npm stage publish` only, so every
+# trusted publisher for pgboxdb allows `npm stage publish` only, so every
 # release gets two human gates — the GitHub environment approval and the
 # maintainer's 2FA approval on npmjs.com. Direct `npm publish` needs an
 # explicit manual dispatch with stage=false (and a trusted publisher that
@@ -56,7 +56,7 @@ permissions:
   contents: read
 jobs:
   verify:
-    if: github.repository == 'pgrundev/pgx'
+    if: github.repository == 'pgrundev/pgboxdb'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.resolve.outputs.version }}
@@ -87,7 +87,7 @@ jobs:
           prerelease="$(echo "$json" | jq -r .isPrerelease)"
           dist_tag="$([ "$prerelease" = true ] && echo beta || echo latest)"
           { echo "version=$version"; echo "tag=$tag"; echo "dist_tag=$dist_tag"; } >> "$GITHUB_OUTPUT"
-          echo "pgxdb@$version from release $tag ($sha, on main) -> dist-tag $dist_tag"
+          echo "pgboxdb@$version from release $tag ($sha, on main) -> dist-tag $dist_tag"
       - name: Release assets must exist for every supported platform
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,7 +98,7 @@ jobs:
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           echo "$assets"
           for t in darwin-arm64 linux-amd64 linux-arm64; do
-            for f in "pgx-$VERSION-$t.tar.gz" "pgx-$VERSION-$t.tar.gz.sha256"; do
+            for f in "pgboxdb-$VERSION-$t.tar.gz" "pgboxdb-$VERSION-$t.tar.gz.sha256"; do
               echo "$assets" | grep -qx "$f" || { echo "::error::release $TAG lacks $f" >&2; exit 1; }
             done
           done
@@ -119,26 +119,26 @@ jobs:
         working-directory: dist/npm
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
-          PGX_HOME: ${{ runner.temp }}/pgx-home
-          PGX_INSTALL_DIR: ${{ runner.temp }}/pgx-dist
+          PGBOXDB_HOME: ${{ runner.temp }}/pgboxdb-home
+          PGBOXDB_INSTALL_DIR: ${{ runner.temp }}/pgboxdb-dist
         run: |
           set -eu
           npm pack
           mkdir -p "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke"
-          npm init -y >/dev/null && npm install "$GITHUB_WORKSPACE/dist/npm/pgxdb-$VERSION.tgz"
-          npx pgxdb | tee run.out
-          grep -q "PGX is ready" run.out
-          npx pgxdb --json ls | grep -q '"app"'
-          npx pgxdb version | grep -q "$VERSION"
-          npx pgxdb stop
+          npm init -y >/dev/null && npm install "$GITHUB_WORKSPACE/dist/npm/pgboxdb-$VERSION.tgz"
+          npx pgboxdb | tee run.out
+          grep -q "PGBoxDB is ready" run.out
+          npx pgboxdb --json ls | grep -q '"app"'
+          npx pgboxdb version | grep -q "$VERSION"
+          npx pgboxdb stop
       - uses: actions/upload-artifact@v4
         with:
-          name: pgxdb-package
-          path: dist/npm/pgxdb-*.tgz
+          name: pgboxdb-package
+          path: dist/npm/pgboxdb-*.tgz
 
   publish:
     needs: verify
-    if: github.repository == 'pgrundev/pgx' && github.event.inputs.dry_run != 'true'
+    if: github.repository == 'pgrundev/pgboxdb' && github.event.inputs.dry_run != 'true'
     runs-on: ubuntu-24.04
     # Human approval gate: add required reviewers to this environment in
     # Settings → Environments → npm-publish. The job waits for them.
@@ -148,7 +148,7 @@ jobs:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: pgxdb-package, path: pkg }
+        with: { name: pgboxdb-package, path: pkg }
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -165,20 +165,20 @@ jobs:
           # With trusted publishing configured, NODE_AUTH_TOKEN is empty and npm
           # uses OIDC; setup-node's .npmrc line must then not force a token.
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then unset NODE_AUTH_TOKEN; sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG"; fi
-          # ./ is required: a bare "pkg/pgxdb-0.1.0.tgz" is parsed by npm as the
-          # GitHub shorthand github:pkg/pgxdb-0.1.0.tgz (EALLOWGIT on npm >= 11.8).
+          # ./ is required: a bare "pkg/pgboxdb-0.1.0.tgz" is parsed by npm as the
+          # GitHub shorthand github:pkg/pgboxdb-0.1.0.tgz (EALLOWGIT on npm >= 11.8).
           # Release-triggered runs have no inputs (STAGE empty): they stage.
           if [ "${STAGE:-true}" != false ]; then
             # Queued for approval on npmjs.com; nothing is installable until a
             # maintainer approves with 2FA. Creates the package if it is new.
-            npm stage publish ./pkg/pgxdb-*.tgz --access public --tag "$DIST_TAG"
-            echo "::notice::staged pgxdb for approval: npmjs.com → Staged Packages (or \`npm stage list pgxdb\` / \`npm stage approve <stage-id>\`)"
+            npm stage publish ./pkg/pgboxdb-*.tgz --access public --tag "$DIST_TAG"
+            echo "::notice::staged pgboxdb for approval: npmjs.com → Staged Packages (or \`npm stage list pgboxdb\` / \`npm stage approve <stage-id>\`)"
           else
-            npm publish ./pkg/pgxdb-*.tgz --provenance --access public --tag "$DIST_TAG"
+            npm publish ./pkg/pgboxdb-*.tgz --provenance --access public --tag "$DIST_TAG"
           fi
 
   verify-clean-machine:
-    # After a real publish: `npx pgxdb@<version>` from the registry on a clean
+    # After a real publish: `npx pgboxdb@<version>` from the registry on a clean
     # ubuntu:24.04 container with NO PostgreSQL and NO Docker, as an
     # unprivileged user — what a new developer's machine looks like.
     # Not after a staged publish (nothing is installable until approval); run
@@ -198,20 +198,20 @@ jobs:
           if command -v postgres || command -v initdb || command -v psql || command -v docker; then
             echo "::error::this is not a clean machine" >&2; exit 1; fi
           useradd -m -u 10001 fresh
-      - name: npx pgxdb@$VERSION as a fresh unprivileged user
+      - name: npx pgboxdb@$VERSION as a fresh unprivileged user
         run: |
           set -eu
           # Wait for the registry to serve the new version (propagation delay).
           for i in $(seq 1 30); do
-            if npm view "pgxdb@$VERSION" version >/dev/null 2>&1; then break; fi
-            [ "$i" = 30 ] && { echo "::error::pgxdb@$VERSION not visible on npm after 5 minutes" >&2; exit 1; }
+            if npm view "pgboxdb@$VERSION" version >/dev/null 2>&1; then break; fi
+            [ "$i" = 30 ] && { echo "::error::pgboxdb@$VERSION not visible on npm after 5 minutes" >&2; exit 1; }
             sleep 10
           done
           runuser -u fresh -- sh -c "
             set -eu; cd ~
-            npx -y pgxdb@$VERSION | tee run.out
-            grep -q 'PGX is ready' run.out
-            npx -y pgxdb@$VERSION --json ls | grep -q '\"app\"'
-            npx -y pgxdb@$VERSION version | grep -q '$VERSION'
-            npx -y pgxdb@$VERSION stop
+            npx -y pgboxdb@$VERSION | tee run.out
+            grep -q 'PGBoxDB is ready' run.out
+            npx -y pgboxdb@$VERSION --json ls | grep -q '\"app\"'
+            npx -y pgboxdb@$VERSION version | grep -q '$VERSION'
+            npx -y pgboxdb@$VERSION stop
           "

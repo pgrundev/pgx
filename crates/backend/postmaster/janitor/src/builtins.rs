@@ -189,7 +189,7 @@ pub fn fc_pgrust_seal_template(
 /// `pgrust_runtime_status()` -> text (a JSON object): the runtime facts a
 /// control plane needs without parsing logs or shelling into the host.
 /// Superuser only. Cheap: one pg_database scan, one procarray pass, two
-/// /proc reads. Field names are a stable interface (docs/pgx/pgrun-interface.md);
+/// /proc reads. Field names are a stable interface (docs/pgboxdb/pgrun-interface.md);
 /// add fields, do not rename them.
 pub fn fc_pgrust_runtime_status(
     _flinfo: Option<&mut FmgrInfo>,
@@ -268,7 +268,7 @@ pub fn fc_pgrust_runtime_status(
 /// without one serves a subset of PostgreSQL (SQL/XML without libxml2, ICU
 /// collations without libicu), which the compatibility gate cannot see from
 /// the source database. Reported here so placement can refuse such a host
-/// (docs/pgx/compatibility-gate.md "host_library_missing"). Each probe
+/// (docs/pgboxdb/compatibility-gate.md "host_library_missing"). Each probe
 /// resolves once per process and is cached.
 fn libraries_json() -> String {
     let xml = match adt_xml::libxml::status() {

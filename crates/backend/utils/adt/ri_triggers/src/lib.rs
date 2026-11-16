@@ -1780,7 +1780,7 @@ fn ri_FastPathCheck<'mcx>(
     pk_rel: &Relation<'mcx>,
     newtup: &HeapTupleData<'_>,
 ) -> PgResult<bool> {
-    // ExecCheckXactReadOnly refuses the SPI query's row lock; pgx's executor names the command "SELECT".
+    // ExecCheckXactReadOnly refuses the SPI query's row lock; pgboxdb's executor names the command "SELECT".
     if xact::XactReadOnly() && !namespace_seams::is_temp_namespace::call(pk_rel.rd_rel.relnamespace) {
         xact::PreventCommandIfReadOnly("SELECT")?;
     }

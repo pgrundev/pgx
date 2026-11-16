@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the PGX image, run it, connect over TCP, check persistence across a
+# Build the PGBoxDB image, run it, connect over TCP, check persistence across a
 # container restart. Requires a running Docker daemon; otherwise a COVERAGE GAP.
 #
 #   dist/test/docker_test.sh
@@ -9,10 +9,10 @@ command -v docker >/dev/null 2>&1 || { echo "COVERAGE GAP: Docker — docker not
 docker info >/dev/null 2>&1 || { echo "COVERAGE GAP: Docker — daemon not reachable; the image is UNVERIFIED on this host"; exit 2; }
 command -v psql >/dev/null 2>&1 || { echo "COVERAGE GAP: Docker test needs a psql client"; exit 2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
-TAG="pgx-dockertest:$$"
-VOL="pgxdockertest$$"
+TAG="pgboxdb-dockertest:$$"
+VOL="pgboxdbdockertest$$"
 PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
-NAME="pgxdt$$"
+NAME="pgbdt$$"
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; docker volume rm "$VOL" >/dev/null 2>&1 || true; docker rmi "$TAG" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
@@ -20,9 +20,9 @@ echo "building image ..."
 # Not -q: surface the build output (e.g. assemble.sh's own error) on failure.
 docker build -t "$TAG" "$ROOT" || fail "docker build"
 echo "starting container ..."
-# PGX_TTL_INTERVAL=1 makes the in-container supervisor poll once a second so the
+# PGBOXDB_TTL_INTERVAL=1 makes the in-container supervisor poll once a second so the
 # TTL section below is quick and deterministic.
-docker run -d --name "$NAME" -e PGX_PASSWORD=dockerpass -e PGX_TTL_INTERVAL=1 -p "$PORT:5432" -v "$VOL:/var/lib/pgx" "$TAG" >/dev/null || fail "docker run"
+docker run -d --name "$NAME" -e PGBOXDB_PASSWORD=dockerpass -e PGBOXDB_TTL_INTERVAL=1 -p "$PORT:5432" -v "$VOL:/var/lib/pgboxdb" "$TAG" >/dev/null || fail "docker run"
 URL="postgres://postgres:dockerpass@127.0.0.1:$PORT/postgres"
 ok=""
 for _ in $(seq 1 60); do
@@ -37,17 +37,17 @@ got="$(psql "$URL" -Atqc "SELECT v FROM persist" 2>/dev/null || true)"
 [ "$got" = "survives" ] || fail "data did not persist across restart (got '$got')"
 echo "PASS: Docker image builds, initialises, serves over TCP, and persists across a restart"
 
-# TTL: the entrypoint runs `pgx serve`, which spawns the background supervisor.
+# TTL: the entrypoint runs `pgboxdb serve`, which spawns the background supervisor.
 # A temporary database must auto-expire inside the container; a permanent one
 # must survive. Exercises the supervisor end-to-end in the shipped image.
 echo "testing TTL auto-cleanup in-container ..."
-docker exec "$NAME" pgx create keepdb >/dev/null 2>&1 || fail "TTL: create permanent keepdb"
-docker exec "$NAME" pgx create tempdb --ttl 3s >/dev/null 2>&1 || fail "TTL: create tempdb --ttl 3s"
+docker exec "$NAME" pgboxdb create keepdb >/dev/null 2>&1 || fail "TTL: create permanent keepdb"
+docker exec "$NAME" pgboxdb create tempdb --ttl 3s >/dev/null 2>&1 || fail "TTL: create tempdb --ttl 3s"
 gone=""
 for _ in $(seq 1 30); do
-  if ! docker exec "$NAME" pgx ls --json 2>/dev/null | grep -q '"tempdb"'; then gone=1; break; fi
+  if ! docker exec "$NAME" pgboxdb ls --json 2>/dev/null | grep -q '"tempdb"'; then gone=1; break; fi
   sleep 1
 done
-[ -n "$gone" ] || { docker exec "$NAME" pgx ls || true; fail "TTL: tempdb was not auto-deleted"; }
-docker exec "$NAME" pgx ls --json 2>/dev/null | grep -q '"keepdb"' || fail "TTL: permanent keepdb was deleted"
+[ -n "$gone" ] || { docker exec "$NAME" pgboxdb ls || true; fail "TTL: tempdb was not auto-deleted"; }
+docker exec "$NAME" pgboxdb ls --json 2>/dev/null | grep -q '"keepdb"' || fail "TTL: permanent keepdb was deleted"
 echo "PASS: Docker image runs the TTL supervisor; temporary db auto-expired, permanent db survived"

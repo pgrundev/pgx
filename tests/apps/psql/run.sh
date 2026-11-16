@@ -1,7 +1,7 @@
 #!/bin/sh
 # psql fixture: DDL, DML, COPY, a transaction with rollback, \copy, \d.
 set -eu
-PSQL="${PGX_TEST_PSQL:-psql}"
+PSQL="${PGBOXDB_TEST_PSQL:-psql}"
 command -v "$PSQL" >/dev/null || { echo "APP psql: COVERAGE GAP (psql not found)"; exit 2; }
 [ -n "${DATABASE_URL:-}" ] || { echo "APP psql: COVERAGE GAP (DATABASE_URL unset)"; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT

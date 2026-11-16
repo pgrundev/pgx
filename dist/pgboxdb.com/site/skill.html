@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The PGBoxDB Skill — isolated Postgres for Claude Code, Cursor and Codex</title>
+<meta name="description" content="How to install, configure and use the PGBoxDB Agent Skill so every Claude Code, Cursor or Codex session gets its own disposable PostgreSQL-compatible database.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0b0a;--fg:#e8e4de;--muted:#a39d94;--dim:#8a847c;--accent:#f0743e;--line:#26231f;--card:#131110}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:14px;line-height:1.65}
+a{color:var(--fg);text-decoration:underline;text-decoration-color:var(--line)}a:hover{color:var(--accent)}
+header{display:flex;justify-content:space-between;align-items:center;padding:24px 32px;border-bottom:1px solid var(--line)}
+header .brand{font-weight:700;letter-spacing:.08em}header nav{display:flex;gap:28px}header a{text-decoration:none}
+main{max-width:820px;margin:0 auto;padding:48px 24px 96px}
+h1{font-family:'Archivo Black','Arial Black',sans-serif;font-weight:400;font-size:30px;margin:0 0 8px}
+h2{font-family:'Archivo Black','Arial Black',sans-serif;font-weight:400;font-size:20px;margin:48px 0 12px}
+.lead{color:var(--muted);font-size:16px;margin:0 0 24px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow-x:auto;margin:14px 0}
+code{font-family:inherit}
+table{width:100%;border-collapse:collapse;margin:14px 0}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--dim);font-weight:400}
+blockquote{margin:14px 0;padding:10px 16px;border-left:2px solid var(--accent);color:var(--muted)}
+.note{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px 16px;color:var(--muted)}
+footer{border-top:1px solid var(--line);color:var(--dim);padding:32px 24px;text-align:center}
+@media (max-width:640px){header{padding:18px 16px}main{padding:32px 16px 64px}}
+</style>
+</head>
+<body>
+<header><div class="brand"><a href="index.html">pgboxdb.com</a></div><nav><a href="index.html">home</a><a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/cli.md">cli</a><a href="https://github.com/pgrundev/pgboxdb">github</a></nav></header>
+<main>
+<h1>The PGBoxDB Skill</h1>
+<p class="lead">One Skill. Every agent gets its own Postgres. Keep your Postgres; let PGBoxDB handle your agents.</p>
+
+<h2>Install</h2>
+<pre><code>npx skills add pgrundev/pgboxdb --skill pgboxdb                 # auto-detects your agents
+npx skills add pgrundev/pgboxdb --skill pgboxdb -a claude-code  # or name them: claude-code, cursor, codex
+npx skills add pgrundev/pgboxdb --skill pgboxdb -g              # user-level instead of per project</code></pre>
+<p>The <a href="https://github.com/vercel-labs/skills">skills CLI</a> places the Skill where each agent reads it (<code>.claude/skills/pgboxdb</code> for Claude Code, <code>.agents/skills/pgboxdb</code> for Codex and Cursor). The Skill follows the <a href="https://agentskills.io">Agent Skills specification</a>; its source is <a href="https://github.com/pgrundev/pgboxdb/tree/main/skills/pgboxdb"><code>skills/pgboxdb</code></a> in the PGBoxDB repository. PGBoxDB itself can also be installed by hand: <code>npx pgboxdb@latest</code> or <code>curl -fsSL https://pgboxdb.com/install | sh</code>.</p>
+
+<h2>Set up a project</h2>
+<p>Open your agent in the project and ask:</p>
+<blockquote>Use PGBoxDB to give this project isolated databases for coding agents. Set everything up.</blockquote>
+<p>With the Skill active the agent: detects your framework and database configuration (without printing credentials); installs PGBoxDB if it is missing; imports your development database <strong>schema-only</strong> into a template (asking first for anything that looks remote or production-like, and before any data copy); runs <code>pgboxdb agent setup</code>, which writes a committed <code>.pgboxdb.toml</code>, installs lifecycle hooks for the agents on your machine and proves a branch; then runs <code>pgboxdb agent doctor</code>. Commit <code>.pgboxdb.toml</code> and the hook files.</p>
+<div class="note">Installing a Skill executes nothing by itself. Setup happens when the agent activates the Skill, within the permissions you grant it. Network installs and data imports are asked about.</div>
+
+<h2>Work</h2>
+<p>From the next session on, each Claude Code session starts with its own branch: <code>DATABASE_URL</code>, <code>PGHOST</code>/<code>PGPORT</code>/<code>PGUSER</code>/<code>PGPASSWORD</code>/<code>PGDATABASE</code>, <code>PGBOXDB_BRANCH</code> and <code>PGBOXDB_ISOLATION=ok</code> are set before the first command, and a context line names the branch. Migrations, seeds and tests run there. Two agents never see each other's changes. The branch expires two hours after the agent's last activity, or ten minutes after the session ends.</p>
+<pre><code>pgboxdb agent exec -- bin/rails test      # any command in a branch (also inside a session without hooks)
+pgboxdb agent ls                          # who has a branch, until when
+pgboxdb agent doctor                      # is this project ready? is this session isolated?</code></pre>
+
+<h2>Hosts</h2>
+<table>
+<tr><th>Host</th><th>How</th><th>Status</th></tr>
+<tr><td>Claude Code</td><td>Hooks in <code>.claude/settings.json</code>: SessionStart creates the branch and exports the variables for every Bash command; activity extends the TTL; SessionEnd starts the grace period. Subagents share the session; <code>claude --worktree</code> sessions get their own.</td><td>Verified live (2026-10-25): setup from an existing PostgreSQL, feature work, resume, two concurrent sessions.</td></tr>
+<tr><td>Cursor</td><td>Hooks in <code>.cursor/hooks.json</code>: sessionStart returns the variables Cursor applies to that conversation's shell. Not re-applied to a reopened chat; not inherited by Cursor subagents; cloud agents skipped.</td><td>Payload-level tests; live propagation pending verification. Use <code>pgboxdb agent exec -- &lt;command&gt;</code> when <code>PGBOXDB_ISOLATION</code> is unset.</td></tr>
+<tr><td>Codex</td><td>Codex hooks cannot set environment. Start Codex as <code>pgboxdb agent exec -- codex</code>, or run database commands as <code>pgboxdb agent exec -- &lt;command&gt;</code> inside Codex. The workspace-write sandbox needs <code>sandbox_workspace_write.network_access = true</code> to reach PGBoxDB.</td><td>Wrapper verified by tests; native hooks pending a logged-in Codex.</td></tr>
+</table>
+
+<h2>Safety</h2>
+<p>Schema-only by default; no production data without explicit approval; no credentials in the conversation; nothing leaves the machine; no edits to your application config; no deletion of developer databases; existing hooks preserved; sandboxes never weakened. If a project has opted in and a branch cannot be created, the session fails closed: <code>DATABASE_URL</code> points at an unreachable sentinel rather than at another database. Full rules: <a href="https://github.com/pgrundev/pgboxdb/blob/main/skills/pgboxdb/references/security.md">security.md</a>.</p>
+
+<h2>Links</h2>
+<p><a href="https://github.com/pgrundev/pgboxdb">GitHub repository</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/agents.md">agents guide and compatibility matrix</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/cli.md">manual CLI reference</a> · <a href="https://agentskills.io/specification">Agent Skills specification</a><!-- · <a href="https://skills.sh/pgrundev/pgboxdb">skills.sh listing</a> (enable once the skill is listed) --></p>
+</main>
+<footer>PGBoxDB — Postgres for agents. AGPL-3.0.</footer>
+</body>
+</html>

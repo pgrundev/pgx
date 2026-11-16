@@ -3,21 +3,21 @@ on:
   pull_request:
   push:
     branches: [main, prod]
-# PR gate: fast correctness checks for the pgx CLI, the assembled distribution,
+# PR gate: fast correctness checks for the pgboxdb CLI, the assembled distribution,
 # the black-box SQL/clone/doctor suites, the installer, and the Docker image.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   worker:
-    name: pgx.dev /install Worker tests
+    name: pgboxdb.com /install Worker tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Worker unit tests (node:test)
-        run: node --test dist/pgx.dev/install-worker.test.js
+        run: node --test dist/pgboxdb.com/install-worker.test.js
   npm:
-    name: npm wrapper (pgxdb) tests (${{ matrix.os }})
+    name: npm wrapper (pgboxdb) tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         # amd64 Linux, arm64 Linux (native runner), and arm64 macOS — the three
-        # architectures PGX ships for. Each leg runs the full suite natively.
+        # architectures PGBoxDB ships for. Each leg runs the full suite natively.
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
@@ -70,48 +70,48 @@ jobs:
           toolchain: "1.96.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Format and clippy (pgx crate)
+      - name: Format and clippy (pgboxdb crate)
         run: |
-          cargo fmt -p pgx -- --check
-          cargo clippy -p pgx --all-targets -- -D warnings
+          cargo fmt -p pgboxdb -- --check
+          cargo clippy -p pgboxdb --all-targets -- -D warnings
       - name: Build engine and CLI
-        run: cargo build --release --locked --bin postgres --bin pgx
+        run: cargo build --release --locked --bin postgres --bin pgboxdb
       - name: Assemble distribution
-        # A 0.-prefixed prerelease version so dist.json (and `pgx version`) look
+        # A 0.-prefixed prerelease version so dist.json (and `pgboxdb version`) look
         # like a real build; the base `0.0.0-ci` prefixes the dist dir name used
-        # by the Export PGX_DIST step below.
+        # by the Export PGBOXDB_DIST step below.
         run: dist/assemble.sh --out "$RUNNER_TEMP/rel" --version "0.0.0-ci.${{ github.sha }}" --pg-bindir "$PG18_BINDIR"
       - name: Unit tests
         # Only the crate's own unit tests here (no assembled dist); the
-        # integration suites that need PGX_DIST run in "Black-box suites" below.
-        run: cargo test -p pgx --release --bin pgx
-        env: { PGX_DIST: "" }
-      - name: Export PGX_DIST
-        run: echo "PGX_DIST=$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name 'pgx-0.0.0-ci.*')" >> "$GITHUB_ENV"
+        # integration suites that need PGBOXDB_DIST run in "Black-box suites" below.
+        run: cargo test -p pgboxdb --release --bin pgboxdb
+        env: { PGBOXDB_DIST: "" }
+      - name: Export PGBOXDB_DIST
+        run: echo "PGBOXDB_DIST=$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name 'pgboxdb-0.0.0-ci.*')" >> "$GITHUB_ENV"
       - name: Black-box suites
         run: |
-          python3 -I tests/pgx/test_sql.py
-          cargo test -p pgx --release --test lifecycle --test databases --test clone --test branch --test doctor --test run --test ttl --test copy
-      - name: pgx top (real runtime + interactive PTY)
-        run: cargo test -p pgx --release --test top --test top_tty
-      - name: Agent lifecycle suites (pgx agent up/hook/exec/install)
-        run: cargo test -p pgx --release --test agent --test agent_hook --test agent_exec --test agent_install --test agent_subagent
-      - name: PGX Git suite (real Git repositories, hooks, worktrees, agents)
+          python3 -I tests/pgboxdb/test_sql.py
+          cargo test -p pgboxdb --release --test lifecycle --test databases --test clone --test branch --test doctor --test run --test ttl --test copy
+      - name: pgboxdb top (real runtime + interactive PTY)
+        run: cargo test -p pgboxdb --release --test top --test top_tty
+      - name: Agent lifecycle suites (pgboxdb agent up/hook/exec/install)
+        run: cargo test -p pgboxdb --release --test agent --test agent_hook --test agent_exec --test agent_install --test agent_subagent
+      - name: PGBoxDB Git suite (real Git repositories, hooks, worktrees, agents)
         run: |
           # With fault injection (failed/interrupted snapshot scenarios)...
-          cargo test -p pgx --release --features failpoints --test git -- --nocapture
+          cargo test -p pgboxdb --release --features failpoints --test git -- --nocapture
           # ...and the release configuration, which must not contain it.
-          cargo test -p pgx --release --test git -- --nocapture
-      - name: Skill end-to-end (real PGX, real PostgreSQL, skills CLI)
-        run: PGX_BIN=target/release/pgx PG_BINDIR="$PG18_BINDIR" skills/tests/pgx/e2e.sh
+          cargo test -p pgboxdb --release --test git -- --nocapture
+      - name: Skill end-to-end (real PGBoxDB, real PostgreSQL, skills CLI)
+        run: PGBOXDB_BIN=target/release/pgboxdb PG_BINDIR="$PG18_BINDIR" skills/tests/pgboxdb/e2e.sh
       - name: Installer end-to-end
         run: dist/test/install_test.sh
       - name: Installer discovery/version/checksum/download tests
         run: dist/test/install_discovery_test.sh
       - name: npm wrapper end-to-end against the assembled distribution
-        run: PGX_TARBALL_DIR="$RUNNER_TEMP/rel" dist/test/npm_test.sh
+        run: PGBOXDB_TARBALL_DIR="$RUNNER_TEMP/rel" dist/test/npm_test.sh
   skill:
-    name: pgx Skill (validator, contract, discovery)
+    name: pgboxdb Skill (validator, contract, discovery)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -121,17 +121,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Official Agent Skills validator
-        run: pipx run skills-ref validate skills/pgx
+        run: pipx run skills-ref validate skills/pgboxdb
       - name: Skill contract and detection fixtures
-        run: skills/tests/pgx/run.sh
+        run: skills/tests/pgboxdb/run.sh
       - name: Discovery with the skills CLI (local path, as the public install would see it)
         run: |
           mkdir -p "$RUNNER_TEMP/proj" && cd "$RUNNER_TEMP/proj" && git init -q .
-          npx -y skills@latest add "$GITHUB_WORKSPACE/skills/pgx" --list | tee list.txt
-          grep -q 'pgx' list.txt
-          npx -y skills@latest add "$GITHUB_WORKSPACE/skills/pgx" -a claude-code codex cursor -y
-          test -f .claude/skills/pgx/SKILL.md && test -f .agents/skills/pgx/SKILL.md
-          test ! -e .claude/skills/pgx/tests
+          npx -y skills@latest add "$GITHUB_WORKSPACE/skills/pgboxdb" --list | tee list.txt
+          grep -q 'pgboxdb' list.txt
+          npx -y skills@latest add "$GITHUB_WORKSPACE/skills/pgboxdb" -a claude-code codex cursor -y
+          test -f .claude/skills/pgboxdb/SKILL.md && test -f .agents/skills/pgboxdb/SKILL.md
+          test ! -e .claude/skills/pgboxdb/tests
   plugin:
     name: Claude Code plugin (marketplace, manifest, install cycle)
     runs-on: ubuntu-24.04
@@ -142,7 +142,7 @@ jobs:
       - name: Install the Claude Code CLI (pinned; validate/install need no login)
         run: npm install -g @anthropic-ai/claude-code@2.1.310 && claude --version
       - name: Plugin package tests (drift, manifests, hygiene, isolated install cycle)
-        run: plugins/tests/pgx/run.sh
+        run: plugins/tests/pgboxdb/run.sh
       - name: Secret scan of the plugin package and marketplace (gitleaks)
         run: |
           curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks

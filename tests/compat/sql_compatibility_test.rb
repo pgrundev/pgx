@@ -1,7 +1,7 @@
 # Brief §9 — plain DML and DDL on one connection, compared with PostgreSQL.
 require_relative "compat_helper"
 
-class PgxCompat::SqlCompatibilityTest < PgxCompat::Case
+class PgboxdbCompat::SqlCompatibilityTest < PgboxdbCompat::Case
   category "SQL_COMPATIBILITY"
 
   def test_select_returns_rows_in_order

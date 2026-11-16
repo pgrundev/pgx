@@ -1,4 +1,4 @@
-# PGX — LLM Implementation Instructions
+# PGBoxDB — LLM Implementation Instructions
 
 ## Mission
 
@@ -6,9 +6,9 @@ This repository is a fork of PgRust:
 
 `https://github.com/alexshapalov/pgrust`
 
-We are using it to build and evaluate **PGX**.
+We are using it to build and evaluate **PGBoxDB**.
 
-PGX is a lightweight, disposable, Postgres-compatible database runtime designed specifically for:
+PGBoxDB is a lightweight, disposable, Postgres-compatible database runtime designed specifically for:
 
 - AI coding agents
 - CI
@@ -17,26 +17,26 @@ PGX is a lightweight, disposable, Postgres-compatible database runtime designed 
 - development
 - short-lived isolated databases
 
-PGX is not intended to replace production PostgreSQL.
+PGBoxDB is not intended to replace production PostgreSQL.
 
 Production remains PostgreSQL.
 
-PGX should provide enough PostgreSQL compatibility that normal applications, ORMs, migrations, test suites, and Postgres clients can use it without needing a separate database implementation.
+PGBoxDB should provide enough PostgreSQL compatibility that normal applications, ORMs, migrations, test suites, and Postgres clients can use it without needing a separate database implementation.
 
 The main hypothesis is:
 
 > Production PostgreSQL is optimized to live for years.  
-> PGX should be optimized to live for minutes or hours.
+> PGBoxDB should be optimized to live for minutes or hours.
 
 The long-term goal is:
 
 > Make a Postgres-compatible database cheap enough to create and destroy like a temporary file.
 
-PGX will eventually run underneath PGRun.
+PGBoxDB will eventually run underneath PGRun.
 
 PGRun is the infrastructure/orchestration layer.
 
-PGX is the database engine/runtime.
+PGBoxDB is the database engine/runtime.
 
 ---
 
@@ -74,7 +74,7 @@ Only after Phase 1 measurements exist, investigate architectural changes inspire
 
 Goal:
 
-> Make the cost of an inactive PGX database approach the cost of storing its data rather than the cost of running a database server.
+> Make the cost of an inactive PGBoxDB database approach the cost of storing its data rather than the cost of running a database server.
 
 ---
 
@@ -82,9 +82,9 @@ Goal:
 
 Do not optimize for generic database benchmark performance first.
 
-PGX is not trying to win ClickBench.
+PGBoxDB is not trying to win ClickBench.
 
-PGX should optimize for:
+PGBoxDB should optimize for:
 
 1. low idle RAM
 2. low incremental RAM per database
@@ -115,7 +115,7 @@ Conceptually:
                        |
           +------------+------------+
           |            |            |
-         PGX          PGX          PGX
+         PGBoxDB          PGBoxDB          PGBoxDB
        agent A      agent B      agent C
           |            |            |
           +---- Postgres protocol ---+
@@ -133,7 +133,7 @@ safe / masked / sanitized copy
 golden database
         |
         v
-PGX branch
+PGBoxDB branch
         |
         v
 postgres://...
@@ -157,7 +157,7 @@ one agent task
 one development session
 ```
 
-This assumption should influence every PGX design decision.
+This assumption should influence every PGBoxDB design decision.
 
 ---
 
@@ -208,15 +208,15 @@ Important functionality to keep includes:
 - temporary tables where possible
 - common ORM behavior
 
-A Rails, Django, Prisma, SQLAlchemy, Node, Go, or other normal Postgres application should ideally not need special code for PGX.
+A Rails, Django, Prisma, SQLAlchemy, Node, Go, or other normal Postgres application should ideally not need special code for PGBoxDB.
 
 ---
 
 # 5. Features we probably do not need
 
-PGX is not a production database.
+PGBoxDB is not a production database.
 
-Primary candidates for disabling or removing from the PGX profile include:
+Primary candidates for disabling or removing from the PGBoxDB profile include:
 
 - streaming replication
 - physical replicas
@@ -246,7 +246,7 @@ Prefer:
 
 - runtime flags
 - Cargo features
-- PGX-specific build profile
+- PGBoxDB-specific build profile
 - conditional compilation
 - alternate startup path
 
@@ -256,7 +256,7 @@ before permanently deleting code.
 
 # 6. Features that must not be removed blindly
 
-Do not remove these merely because PGX databases are temporary:
+Do not remove these merely because PGBoxDB databases are temporary:
 
 - transactions
 - WAL-related logic required for transaction correctness
@@ -281,14 +281,14 @@ First measure and understand them.
 
 # 7. Phase 0 — establish baseline
 
-Before any PGX optimization, collect a clean baseline.
+Before any PGBoxDB optimization, collect a clean baseline.
 
 We need three initial variants:
 
 ```text
 PostgreSQL 18
 PgRust current fork
-PGX experiments
+PGBoxDB experiments
 ```
 
 Use the same:
@@ -312,18 +312,18 @@ Do not compare results collected on different machines unless clearly labeled.
 
 ---
 
-# 8. Create PGX benchmark harness first
+# 8. Create PGBoxDB benchmark harness first
 
 Create:
 
 ```text
-benchmarks/pgx/
+benchmarks/pgboxdb/
 ```
 
 Suggested structure:
 
 ```text
-benchmarks/pgx/
+benchmarks/pgboxdb/
   README.md
   run-all.sh
   run-startup.sh
@@ -447,7 +447,7 @@ measure for at least several minutes:
 
 Goal:
 
-> An unused PGX database should do almost nothing.
+> An unused PGBoxDB database should do almost nothing.
 
 ---
 
@@ -496,7 +496,7 @@ Do not benchmark only `SELECT 1`.
 
 # 14. Agent workload benchmark
 
-Create a workload that simulates how PGX will actually be used.
+Create a workload that simulates how PGBoxDB will actually be used.
 
 Example:
 
@@ -522,16 +522,16 @@ This benchmark matters more than generic OLTP benchmark scores.
 
 ---
 
-# 15. Phase 1A — configuration-only PGX
+# 15. Phase 1A — configuration-only PGBoxDB
 
 Do not modify core architecture yet.
 
-First create a PGX ephemeral configuration.
+First create a PGBoxDB ephemeral configuration.
 
 Suggested file:
 
 ```text
-configs/pgx-ephemeral.conf
+configs/pgboxdb-ephemeral.conf
 ```
 
 Investigate these settings.
@@ -582,7 +582,7 @@ Compare:
 ```text
 Postgres
 PgRust baseline
-PgRust + PGX config
+PgRust + PGBoxDB config
 ```
 
 Do not remove code yet.
@@ -590,7 +590,7 @@ Do not remove code yet.
 Create a result document:
 
 ```text
-docs/pgx/experiments/001-ephemeral-config.md
+docs/pgboxdb/experiments/001-ephemeral-config.md
 ```
 
 Include:
@@ -636,7 +636,7 @@ Do not optimize from guesses.
 Produce:
 
 ```text
-docs/pgx/memory-profile.md
+docs/pgboxdb/memory-profile.md
 ```
 
 ---
@@ -665,7 +665,7 @@ The exact stages depend on PgRust.
 Produce:
 
 ```text
-docs/pgx/startup-profile.md
+docs/pgboxdb/startup-profile.md
 ```
 
 Identify the top three startup costs.
@@ -677,7 +677,7 @@ Identify the top three startup costs.
 Create:
 
 ```text
-docs/pgx/feature-inventory.md
+docs/pgboxdb/feature-inventory.md
 ```
 
 For every major subsystem document:
@@ -692,7 +692,7 @@ background CPU cost
 disk IO cost
 dependencies
 can disable at runtime?
-can remove from PGX build?
+can remove from PGBoxDB build?
 compatibility risk
 decision
 ```
@@ -772,25 +772,25 @@ standby
 recovery-specific production paths
 ```
 
-Prefer creating a PGX build profile.
+Prefer creating a PGBoxDB build profile.
 
 Potential conceptual Cargo feature:
 
 ```text
-pgx-ephemeral
+pgboxdb-ephemeral
 ```
 
 And optional features such as:
 
 ```text
-pgx-no-replication
-pgx-no-backup
-pgx-no-archive
+pgboxdb-no-replication
+pgboxdb-no-backup
+pgboxdb-no-archive
 ```
 
 Do not over-engineer the feature system.
 
-One PGX profile is enough initially if that is simpler.
+One PGBoxDB profile is enough initially if that is simpler.
 
 ---
 
@@ -801,7 +801,7 @@ Example progression:
 ```text
 A0 PostgreSQL
 A1 PgRust
-A2 PgRust + PGX config
+A2 PgRust + PGBoxDB config
 A3 + replication disabled
 A4 + backup/archive disabled
 A5 + durability changes
@@ -817,13 +817,13 @@ We need to understand what each change buys.
 
 # 22. Phase 1C — durability experiment
 
-PGX databases are disposable.
+PGBoxDB databases are disposable.
 
-This means PGX may make a different durability tradeoff from production PostgreSQL.
+This means PGBoxDB may make a different durability tradeoff from production PostgreSQL.
 
 The desired property is:
 
-> Transactions behave normally while PGX is alive, but catastrophic host/process failure may require recreating the database from PGRun.
+> Transactions behave normally while PGBoxDB is alive, but catastrophic host/process failure may require recreating the database from PGRun.
 
 This is acceptable for agent/test branches.
 
@@ -856,18 +856,18 @@ Document the exact durability contract.
 Suggested:
 
 ```text
-docs/pgx/durability.md
+docs/pgboxdb/durability.md
 ```
 
 ---
 
-# 23. PGX durability contract
+# 23. PGBoxDB durability contract
 
 Eventually we should be able to state something like:
 
-> PGX ephemeral mode provides normal transactional semantics while the database instance is running.
+> PGBoxDB ephemeral mode provides normal transactional semantics while the database instance is running.
 
-> PGX does not guarantee survival of host or process failure.
+> PGBoxDB does not guarantee survival of host or process failure.
 
 > If the runtime fails, PGRun may discard the branch and recreate it from its source/golden snapshot.
 
@@ -959,7 +959,7 @@ This may become important later for instant branches.
 
 PgRust heavily uses JIT.
 
-Do not assume JIT is beneficial for PGX workloads.
+Do not assume JIT is beneficial for PGBoxDB workloads.
 
 Agent workloads often consist of many short queries.
 
@@ -980,7 +980,7 @@ Measure:
 - memory
 - long query performance
 
-PGX may prefer faster startup and lower per-query setup over peak throughput.
+PGBoxDB may prefer faster startup and lower per-query setup over peak throughput.
 
 ---
 
@@ -1044,7 +1044,7 @@ Convert expensive eager state to lazy allocation where practical.
 
 # 30. Cache strategy
 
-PGX should prefer bounded and reclaimable caches.
+PGBoxDB should prefer bounded and reclaimable caches.
 
 A database that was active and then becomes unused should not permanently retain large memory caches.
 
@@ -1058,7 +1058,7 @@ Investigate:
 
 Question:
 
-> Can this memory be dropped when a PGX database becomes idle?
+> Can this memory be dropped when a PGBoxDB database becomes idle?
 
 This becomes more important in Phase 2.
 
@@ -1069,7 +1069,7 @@ This becomes more important in Phase 2.
 At the end of Phase 1 produce something like:
 
 ```text
-Metric                 PG18   PgRust   PGX-config   PGX-final
+Metric                 PG18   PgRust   PGBoxDB-config   PGBoxDB-final
 --------------------------------------------------------------
 cold start ms
 first query ms
@@ -1088,7 +1088,7 @@ binary size
 For multiple instance tests:
 
 ```text
-Instances              PG18   PgRust   PGX
+Instances              PG18   PgRust   PGBoxDB
 -------------------------------------------
 1
 10
@@ -1103,7 +1103,7 @@ Record total RSS and average incremental RSS.
 
 # 32. Application compatibility suite
 
-Create a separate PGX compatibility suite.
+Create a separate PGBoxDB compatibility suite.
 
 At minimum eventually test:
 
@@ -1162,7 +1162,7 @@ Did application compatibility remain acceptable?
 
 Where is the remaining fixed cost?
 
-If PgRust with PGX tuning is already cheap enough for PGRun, stop and use it.
+If PgRust with PGBoxDB tuning is already cheap enough for PGRun, stop and use it.
 
 Do not redesign architecture unnecessarily.
 
@@ -1187,7 +1187,7 @@ one full server instance
 we want:
 
 ```text
-one PGX runtime
+one PGBoxDB runtime
 =
 many isolated databases
 ```
@@ -1196,7 +1196,7 @@ Concept:
 
 ```text
                     pgxd
-              shared PGX runtime
+              shared PGBoxDB runtime
 
           /            |            \
          /             |             \
@@ -1384,7 +1384,7 @@ RAM after eviction
 
 PGRun already has snapshot/COW infrastructure.
 
-PGX should eventually be able to understand the concept directly.
+PGBoxDB should eventually be able to understand the concept directly.
 
 Desired conceptual model:
 
@@ -1422,7 +1422,7 @@ Current database systems often conceptually operate on:
 open(PGDATA)
 ```
 
-PGX may eventually benefit from something more like:
+PGBoxDB may eventually benefit from something more like:
 
 ```text
 open(base_snapshot, writable_overlay)
@@ -1495,8 +1495,8 @@ Run against:
 ```text
 PostgreSQL
 PgRust
-PGX Phase 1
-PGX Phase 2
+PGBoxDB Phase 1
+PGBoxDB Phase 2
 ```
 
 This is the primary product benchmark.
@@ -1509,7 +1509,7 @@ A shared runtime introduces a new risk.
 
 One agent must not kill all other agents.
 
-PGX needs limits for:
+PGBoxDB needs limits for:
 
 - memory
 - CPU
@@ -1665,7 +1665,7 @@ Do not make undocumented performance changes.
 Create and maintain:
 
 ```text
-docs/pgx/
+docs/pgboxdb/
   architecture.md
   feature-inventory.md
   compatibility.md
@@ -1752,7 +1752,7 @@ long-lived vacuum stability
 
 it is probably not our current priority.
 
-PGX should still be correct for its supported workload.
+PGBoxDB should still be correct for its supported workload.
 
 But production operations are not the target.
 
@@ -1789,9 +1789,9 @@ and use it normally.
 Do not write claims like:
 
 ```text
-PGX uses 5 MB RAM
-PGX starts in 20 ms
-PGX supports 10,000 databases
+PGBoxDB uses 5 MB RAM
+PGBoxDB starts in 20 ms
+PGBoxDB supports 10,000 databases
 ```
 
 unless measurements actually demonstrate them.
@@ -1859,7 +1859,7 @@ Do not start optimization work from a broken baseline.
 Create:
 
 ```text
-benchmarks/pgx/
+benchmarks/pgboxdb/
 ```
 
 Implement startup benchmark.
@@ -1941,7 +1941,7 @@ Store results.
 Create:
 
 ```text
-configs/pgx-ephemeral.conf
+configs/pgboxdb-ephemeral.conf
 ```
 
 Start with configuration-only changes.
@@ -1950,7 +1950,7 @@ No core code modification yet.
 
 ## Task 10
 
-Measure PGX config.
+Measure PGBoxDB config.
 
 Compare against PgRust baseline.
 
@@ -1969,7 +1969,7 @@ Profile startup.
 Create:
 
 ```text
-docs/pgx/startup-profile.md
+docs/pgboxdb/startup-profile.md
 ```
 
 ## Task 12
@@ -1979,7 +1979,7 @@ Profile memory.
 Create:
 
 ```text
-docs/pgx/memory-profile.md
+docs/pgboxdb/memory-profile.md
 ```
 
 ## Task 13
@@ -1989,7 +1989,7 @@ Create feature inventory.
 Create:
 
 ```text
-docs/pgx/feature-inventory.md
+docs/pgboxdb/feature-inventory.md
 ```
 
 ## Task 14
@@ -2062,7 +2062,7 @@ Investigate thread stack and per-connection memory.
 At the end of Phase 1 produce:
 
 ```text
-docs/pgx/phase1-results.md
+docs/pgboxdb/phase1-results.md
 ```
 
 It must contain:
@@ -2071,7 +2071,7 @@ It must contain:
 
 PostgreSQL and PgRust.
 
-## Final PGX configuration
+## Final PGBoxDB configuration
 
 Exact settings/build features.
 
@@ -2141,7 +2141,7 @@ Do not build the entire final architecture.
 
 The first experiment should answer one question:
 
-> Can multiple isolated database objects exist inside one PgRust/PGX runtime without paying the full runtime cost per database?
+> Can multiple isolated database objects exist inside one PgRust/PGBoxDB runtime without paying the full runtime cost per database?
 
 Prototype only enough to measure this.
 
@@ -2226,11 +2226,11 @@ If yes, reconsider.
 The long-term architecture should make this normal:
 
 ```text
-Agent #1 -> its own PGX
-Agent #2 -> its own PGX
-Agent #3 -> its own PGX
+Agent #1 -> its own PGBoxDB
+Agent #2 -> its own PGBoxDB
+Agent #3 -> its own PGBoxDB
 ...
-Agent #1000 -> its own PGX
+Agent #1000 -> its own PGBoxDB
 ```
 
 without treating each database as heavyweight infrastructure.
@@ -2243,7 +2243,7 @@ Eventually:
 
 # 67. Final product principle
 
-PGX exists because agent infrastructure changes the lifetime of databases.
+PGBoxDB exists because agent infrastructure changes the lifetime of databases.
 
 Traditional model:
 
@@ -2257,7 +2257,7 @@ backup
 operations
 ```
 
-PGX model:
+PGBoxDB model:
 
 ```text
 many databases
@@ -2272,11 +2272,11 @@ We should not optimize an old architecture for the wrong lifecycle.
 
 The main vision is:
 
-> **PGX — Postgres for agents.**
+> **PGBoxDB — Postgres for agents.**
 
 And:
 
-> **PGRun — infrastructure that runs PGX at scale.**
+> **PGRun — infrastructure that runs PGBoxDB at scale.**
 
 The final success condition is simple:
 

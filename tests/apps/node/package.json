@@ -1,1 +1,1 @@
-{ "name": "pgx-node-fixture", "version": "1.0.0", "private": true, "dependencies": { "pg": "^8.23.1" } }
+{ "name": "pgboxdb-node-fixture", "version": "1.0.0", "private": true, "dependencies": { "pg": "^8.23.1" } }

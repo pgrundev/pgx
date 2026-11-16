@@ -71,30 +71,30 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/pgx-static-re2
+          path: ${{ runner.temp }}/pgboxdb-static-re2
           key: static-re2-macos-${{ runner.arch }}-absl20260817.0-re2-2025-11-05-v1
       - name: Build static re2+abseil prefix (macOS)
         if: runner.os == 'macOS'
         run: |
-          PREFIX="$(PGX_RE2_PREFIX="$RUNNER_TEMP/pgx-static-re2" dist/macos/build-static-re2.sh)"
+          PREFIX="$(PGBOXDB_RE2_PREFIX="$RUNNER_TEMP/pgboxdb-static-re2" dist/macos/build-static-re2.sh)"
           echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: "1.96.0" }
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --locked --bin postgres --bin pgx
+        run: cargo build --release --locked --bin postgres --bin pgboxdb
       - name: Assemble
         run: dist/assemble.sh --out "$RUNNER_TEMP/rel" --version "$VERSION" --pg-bindir "$PG18_BINDIR"
       - name: Self-contained check (macOS — no non-system dylib deps)
         if: runner.os == 'macOS'
-        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgx-$VERSION-*")"
+        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgboxdb-$VERSION-*")"
       - name: Verify the packaged artifact (lifecycle suite)
         run: |
-          export PGX_DIST="$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgx-$VERSION-*")"
-          cargo test -p pgx --release --test lifecycle --test databases --test clone
+          export PGBOXDB_DIST="$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgboxdb-$VERSION-*")"
+          cargo test -p pgboxdb --release --test lifecycle --test databases --test clone
       - uses: actions/upload-artifact@v4
         with:
-          name: pgx-${{ matrix.target }}
+          name: pgboxdb-${{ matrix.target }}
           path: |
             ${{ runner.temp }}/rel/*.tar.gz
             ${{ runner.temp }}/rel/*.tar.gz.sha256
@@ -106,8 +106,8 @@ jobs:
         with: { path: artifacts }
       - name: Drop the experimental darwin-amd64 build (actions artifact only, never a release asset)
         # macOS on Intel is not supported until that artifact has been validated;
-        # publishing it would make `npx pgxdb` / install.sh pick it up blindly.
-        run: rm -rf artifacts/pgx-darwin-amd64
+        # publishing it would make `npx pgboxdb` / install.sh pick it up blindly.
+        run: rm -rf artifacts/pgboxdb-darwin-amd64
       - name: Collect checksums
         run: |
           cd artifacts && find . -name '*.sha256' -exec cat {} \; > ../checksums.txt
@@ -125,7 +125,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          name: PGX ${{ github.ref_name }}
+          name: PGBoxDB ${{ github.ref_name }}
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.tar.gz.sha256

@@ -352,7 +352,7 @@ fn main() {
 ///
 /// mimalloc (allow_thp defaults to on) marks its large aligned regions
 /// MADV_HUGEPAGE, so even on a host set to `madvise` an idle runtime faults
-/// in 2 MB pages for allocator arenas: measured on Linux x86_64, the PGX
+/// in 2 MB pages for allocator arenas: measured on Linux x86_64, the PGBoxDB
 /// profile at idle is 83 MB PSS with them and 45 MB without, and a 2 MB page
 /// can only be returned to the system whole, which works against purging
 /// freed memory in a long-lived multi-database runtime. PR_SET_THP_DISABLE

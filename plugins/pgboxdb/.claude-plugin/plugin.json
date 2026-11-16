@@ -1,0 +1,16 @@
+{
+  "name": "pgboxdb",
+  "displayName": "PGBoxDB — Postgres for Agents",
+  "version": "0.1.3",
+  "description": "Isolated, disposable PostgreSQL-compatible databases for AI coding agents.",
+  "author": {
+    "name": "PGRunDev",
+    "url": "https://pgboxdb.com"
+  },
+  "homepage": "https://pgboxdb.com",
+  "repository": "https://github.com/pgrundev/pgboxdb",
+  "license": "AGPL-3.0",
+  "keywords": ["postgres", "postgresql", "database", "ai-agents", "database-branching"],
+  "documentationUrl": "https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/agents.md",
+  "supportUrl": "https://github.com/pgrundev/pgboxdb/issues"
+}

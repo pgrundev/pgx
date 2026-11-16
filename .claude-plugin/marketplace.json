@@ -4,16 +4,16 @@
   "description": "PostgreSQL developer tools for AI coding agents",
   "owner": {
     "name": "PGRunDev",
-    "url": "https://pgx.dev"
+    "url": "https://pgboxdb.com"
   },
   "plugins": [
     {
-      "name": "pgx",
-      "source": "./plugins/pgx",
+      "name": "pgboxdb",
+      "source": "./plugins/pgboxdb",
       "description": "Give every AI coding agent its own isolated, disposable Postgres database.",
       "category": "database",
       "tags": ["postgres", "postgresql", "database", "ai-agents", "database-branching"],
-      "homepage": "https://github.com/pgrundev/pgx"
+      "homepage": "https://github.com/pgrundev/pgboxdb"
     }
   ]
 }

@@ -442,7 +442,11 @@ pub fn load_git_states(home_root: &Path) -> (Vec<RepoState>, Vec<String>) {
         match gitstate::load(home_root, &id) {
             Ok(Some(st)) => ok.push(st),
             Ok(None) => {}
-            Err(err) => bad.push(format!("PGBoxDB Git state {}: {}", sanitize(&id), err.message)),
+            Err(err) => bad.push(format!(
+                "PGBoxDB Git state {}: {}",
+                sanitize(&id),
+                err.message
+            )),
         }
     }
     ok.sort_by(|a, b| a.repo_id.cmp(&b.repo_id));

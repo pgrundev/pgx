@@ -90,3 +90,20 @@ test('missingAssetMessage names macOS Intel as unsupported when its asset is mis
   // A non-404 (e.g. 500) is a plain failure even on Intel macs.
   assert.equal(pgboxdb.missingAssetMessage('darwin-amd64', '0.1.0', url, 503), `download failed: ${url}: HTTP 503`);
 });
+
+test('ensureInstalled never replaces a distribution from before the rename (and downloads nothing)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgboxdb-unit-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'share', 'pgx'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'share', 'pgx', 'dist.json'), JSON.stringify({ pgx_version: '0.1.3' }));
+    assert.equal(pgboxdb.isPreRenameDist(dir), true);
+    await assert.rejects(
+      // An unroutable base URL: the guard must fire before any download.
+      pgboxdb.ensureInstalled({ version: '0.1.3', target: 'darwin-arm64', dir, baseUrl: 'http://127.0.0.1:9' }),
+      /before the rename to PGBoxDB; refusing to replace it/
+    );
+    assert.ok(fs.existsSync(path.join(dir, 'share', 'pgx', 'dist.json')), 'the previous dist is untouched');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -58,6 +58,8 @@ pub enum Command {
     },
     Restart,
     Status,
+    /// Adopt an installation made before the rename (dry run unless --apply).
+    Migrate(crate::cmd::migrate::Opts),
     Create {
         name: String,
         /// `--ttl <dur>`; None means the default (unlimited).
@@ -180,7 +182,9 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
     let only_flags = |allowed: &[&str]| -> Result<()> {
         for (k, _) in &flags {
             if !allowed.contains(k) {
-                return Err(PgboxdbError::usage(format!("pgboxdb {name}: unknown option --{k}")));
+                return Err(PgboxdbError::usage(format!(
+                    "pgboxdb {name}: unknown option --{k}"
+                )));
             }
         }
         Ok(())
@@ -323,9 +327,9 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
                 0,
                 "copy --from <postgres-url> --to <database> [--schema-only] [--jobs N] [--verbose] [--no-optimize]",
             )?;
-            let from = value("from")
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| PgboxdbError::usage("pgboxdb copy: --from <postgres-url> is required"))?;
+            let from = value("from").filter(|v| !v.is_empty()).ok_or_else(|| {
+                PgboxdbError::usage("pgboxdb copy: --from <postgres-url> is required")
+            })?;
             let to = value("to")
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| PgboxdbError::usage("pgboxdb copy: --to <database> is required"))?;
@@ -360,6 +364,14 @@ pub fn parse(args: &[String]) -> Result<(Global, Command)> {
             only_flags(&[])?;
             arity(0, "version")?;
             Command::Version
+        }
+        "migrate" => {
+            only_flags(&["apply", "rollback"])?;
+            arity(0, "migrate [--apply] [--rollback]")?;
+            Command::Migrate(crate::cmd::migrate::Opts {
+                apply: has("apply"),
+                rollback: has("rollback"),
+            })
         }
         "help" => Command::Help,
         other => return Err(PgboxdbError::usage(format!("unknown command {other:?}"))),
@@ -459,6 +471,12 @@ Monitor
 
 Tools
   pgboxdb doctor          check the installation, data directory, port, storage
+  pgboxdb migrate [--apply] [--rollback]
+                          adopt databases, project files and Git identities from an
+                          installation made before the rename to PGBoxDB. A dry run
+                          unless --apply; moves the data home with one rename,
+                          copies files under their new names, deletes nothing.
+                          --rollback --apply moves the home back.
   pgboxdb version
   pgboxdb help
 
@@ -755,7 +773,7 @@ mod tests {
         let h = help_text();
         for c in [
             "run", "init", "start", "stop", "restart", "status", "create", "drop", "clone",
-            "branch", "ls", "url", "copy", "doctor", "version", "help",
+            "branch", "ls", "url", "copy", "doctor", "migrate", "version", "help",
         ] {
             assert!(
                 h.contains(&format!("pgboxdb {c}")) || h.contains(&format!("  {c}")),

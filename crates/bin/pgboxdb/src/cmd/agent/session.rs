@@ -107,8 +107,9 @@ pub fn resolve(input: &ResolveInput) -> Result<Resolved> {
     };
     let cwd = match &input.cwd {
         Some(c) => c.clone(),
-        None => std::env::current_dir()
-            .map_err(|e| PgboxdbError::failure(format!("cannot read the current directory: {e}")))?,
+        None => std::env::current_dir().map_err(|e| {
+            PgboxdbError::failure(format!("cannot read the current directory: {e}"))
+        })?,
     };
     let mut fallbacks = input.fallbacks.clone();
     for var in ["CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR"] {
@@ -293,7 +294,9 @@ pub fn load_ctx() -> Result<Ctx> {
             ExitCode::NotReady,
             format!("PGBoxDB is not initialised at {}", home.root.display()),
         )
-        .hint("run `pgboxdb run` once (or `pgboxdb agent setup`), then start the agent session again"));
+        .hint(
+            "run `pgboxdb run` once (or `pgboxdb agent setup`), then start the agent session again",
+        ));
     }
     Ctx::load()
 }
@@ -574,9 +577,9 @@ pub fn up(out: &Out, r: &Resolved) -> Result<UpResult> {
         Err(e) => return Err(e),
     };
     // Attach the session to the record `clone_database` wrote.
-    let mut rec = store
-        .load(branch.as_str())?
-        .ok_or_else(|| PgboxdbError::failure(format!("no TTL record for {branch} after cloning")))?;
+    let mut rec = store.load(branch.as_str())?.ok_or_else(|| {
+        PgboxdbError::failure(format!("no TTL record for {branch} after cloning"))
+    })?;
     rec.agent = Some(new_meta(r, now));
     rec.expires_at = Some(now + idle);
     store.save(&rec)?;

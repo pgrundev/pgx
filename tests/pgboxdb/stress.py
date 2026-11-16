@@ -18,7 +18,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import pgclient  # noqa: E402
-from lib.harness import PGBoxDB  # noqa: E402
+from lib.harness import Pgboxdb  # noqa: E402
 
 
 def proc_sample(pid):
@@ -185,7 +185,7 @@ def main():
     import json
     report = {"args": vars(args), "workloads": {}, "monitor": {}}
     problems = []
-    with PGBoxDB("stress").up() as pgboxdb:
+    with Pgboxdb("stress").up() as pgboxdb:
         with Monitor(pgboxdb) as mon:
             report["workloads"]["create_drop"] = workload_create_drop(pgboxdb, args.cycles, mon)
             report["monitor"]["after_create_drop"] = mon.report("after_create_drop")

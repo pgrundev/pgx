@@ -24,7 +24,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import pgclient  # noqa: E402
-from lib.harness import PGBoxDB  # noqa: E402
+from lib.harness import Pgboxdb  # noqa: E402
 
 DURABILITY = os.environ.get("PGBOXDB_TEST_DURABILITY", "ephemeral")
 REPEAT = int(os.environ.get("PGBOXDB_TEST_REPEAT", "5"))
@@ -33,7 +33,7 @@ LOSS_WINDOW_S = 1.0
 
 class CrashCase(unittest.TestCase):
     def setUp(self):
-        self.pgboxdb = PGBoxDB("crash", durability=DURABILITY).up()
+        self.pgboxdb = Pgboxdb("crash", durability=DURABILITY).up()
         self.pgboxdb.cli("create", "app", check=True)
         self.invalid_seen = []
 

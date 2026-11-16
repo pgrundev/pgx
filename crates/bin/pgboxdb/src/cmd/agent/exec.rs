@@ -93,7 +93,10 @@ pub fn run(out: &Out, opts: ExecOpts) -> Result<ExitCode> {
     let res = session::up(&out.quiet(), &r)?;
     let provision_ms = started.elapsed().as_secs_f64() * 1000.0;
     for w in &res.guard_warnings {
-        eprintln!("pgboxdb agent exec: guard not applied on {}: {w}", res.branch);
+        eprintln!(
+            "pgboxdb agent exec: guard not applied on {}: {w}",
+            res.branch
+        );
     }
 
     let mut cmd = std::process::Command::new(&program);

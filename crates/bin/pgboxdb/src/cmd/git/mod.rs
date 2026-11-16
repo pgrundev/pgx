@@ -225,7 +225,11 @@ pub fn parse(tail: &[&str]) -> Result<GitCmd> {
             only(&[])?;
             match command {
                 Some(c) if !c.is_empty() && positional.is_empty() => GitCmd::Exec { command: c },
-                _ => return Err(PgboxdbError::usage("usage: pgboxdb git exec -- <command> [args…]")),
+                _ => {
+                    return Err(PgboxdbError::usage(
+                        "usage: pgboxdb git exec -- <command> [args…]",
+                    ))
+                }
             }
         }
         "reset" => {
@@ -271,7 +275,9 @@ pub fn parse(tail: &[&str]) -> Result<GitCmd> {
         "shell" => {
             only(&[])?;
             if positional.len() != 1 || command.is_some() {
-                return Err(PgboxdbError::usage("usage: pgboxdb git shell <bash|zsh|fish>"));
+                return Err(PgboxdbError::usage(
+                    "usage: pgboxdb git shell <bash|zsh|fish>",
+                ));
             }
             env::Shell::parse(&positional[0])?;
             GitCmd::Shell {

@@ -9,7 +9,7 @@ places:
 - **`pgrundev/pgboxdb-plugin`** (https://github.com/pgrundev/pgboxdb-plugin): a
   lightweight repository that holds only the plugin, about 110 KB in 19
   files. It is generated from this repository (see
-  [The standalone repository](#the-standalone-repository-pgrundevpgx-plugin))
+  [The standalone repository](#the-standalone-repository-pgrundevpgboxdb-plugin))
   and is what Anthropic's plugin directory reads. Install from here.
 - **This repository**, as a marketplace named `pgrundev`
   (`.claude-plugin/marketplace.json`) with the plugin at `plugins/pgboxdb/`. It

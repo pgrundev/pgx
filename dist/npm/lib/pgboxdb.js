@@ -77,6 +77,11 @@ function isValidInstall(dir, version) {
   }
 }
 
+/** A distribution from before the rename (its layout file is share/pgx/dist.json). */
+function isPreRenameDist(dir) {
+  return fs.existsSync(path.join(dir, 'share', 'pgx', 'dist.json'));
+}
+
 /** Arguments to pass to pgboxdb: `run` when none are given (a bare `--json` still means run). */
 function pgboxdbArgs(argv) {
   const positional = argv.filter((a) => !a.startsWith('--'));
@@ -203,6 +208,14 @@ function progressReporter(name) {
  */
 async function ensureInstalled({ version, target, dir, baseUrl }) {
   if (isValidInstall(dir, version)) return path.join(dir, 'bin', 'pgboxdb');
+  if (isPreRenameDist(dir)) {
+    // A data home migrated by `pgboxdb migrate` carries the previous
+    // distributions under dist/<version>: never replace (delete) one.
+    throw new PgboxdbError(
+      `${dir} holds a distribution installed before the rename to PGBoxDB; refusing to replace it ` +
+        '(set PGBOXDB_INSTALL_DIR to another directory, or move it aside yourself)'
+    );
+  }
 
   const name = assetName(version, target);
   const url = assetUrl(baseUrl, version, target);
@@ -303,6 +316,7 @@ module.exports = {
   ensureInstalled,
   installDir,
   isValidInstall,
+  isPreRenameDist,
   main,
   missingAssetMessage,
   parseSha256,

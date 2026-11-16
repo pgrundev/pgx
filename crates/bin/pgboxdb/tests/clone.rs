@@ -1,8 +1,8 @@
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 
-fn up_with_source() -> PGBoxDB {
-    let p = PGBoxDB::new();
+fn up_with_source() -> Pgboxdb {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "src"]).code, 0);
@@ -11,7 +11,7 @@ fn up_with_source() -> PGBoxDB {
     p
 }
 
-fn base_dirs(p: &PGBoxDB) -> Vec<String> {
+fn base_dirs(p: &Pgboxdb) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(p.home.join("data/base"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

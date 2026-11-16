@@ -3,10 +3,10 @@
 //! persistence across restart, secure localhost-only defaults, concurrent
 //! invocations, and recovery after an engine crash.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::time::{Duration, Instant};
 
-fn wait_engine_gone(p: &PGBoxDB) {
+fn wait_engine_gone(p: &Pgboxdb) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if p.engine_pids().is_empty() {
@@ -18,7 +18,7 @@ fn wait_engine_gone(p: &PGBoxDB) {
 
 #[test]
 fn run_from_fresh_install_is_ready() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     // A brand-new $PGBOXDB_HOME: nothing initialised, nothing running.
     assert!(!p.home.join("data/PG_VERSION").is_file());
     let r = p.run_cmd(&[]);
@@ -36,7 +36,7 @@ fn run_from_fresh_install_is_ready() {
 
 #[test]
 fn run_is_idempotent_and_creates_no_duplicates() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let first = p.run_cmd(&["--json"]).json();
     assert_eq!(first["initialized"], true);
     assert_eq!(first["started"], true);
@@ -62,7 +62,7 @@ fn run_is_idempotent_and_creates_no_duplicates() {
 
 #[test]
 fn run_json_is_one_object_with_connection_url() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let out = p.run_cmd(&["--json"]);
     assert_eq!(out.code, 0, "{}", out.all());
     assert_eq!(
@@ -83,7 +83,7 @@ fn run_json_is_one_object_with_connection_url() {
 
 #[test]
 fn run_preserves_data_across_restart() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     assert_eq!(p.run_cmd(&[]).code, 0);
     assert_eq!(
         p.psql(
@@ -106,7 +106,7 @@ fn run_preserves_data_across_restart() {
 
 #[test]
 fn run_never_touches_existing_databases() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     // An existing cluster with a developer's own database and data.
     p.init_ok();
     p.start_ok();
@@ -137,7 +137,7 @@ fn run_never_touches_existing_databases() {
 
 #[test]
 fn run_defaults_are_localhost_only_and_password_protected() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     assert_eq!(p.run_cmd(&[]).code, 0);
     let hba = std::fs::read_to_string(p.home.join("data/pg_hba.conf")).unwrap();
     assert!(
@@ -166,7 +166,7 @@ fn run_defaults_are_localhost_only_and_password_protected() {
 
 #[test]
 fn concurrent_runs_make_one_engine_and_one_app() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     // Eight developers (or agents) racing `pgboxdb run` on a fresh home at once.
     let kids: Vec<_> = (0..8).map(|_| p.spawn_run()).collect();
     let codes: Vec<i32> = kids
@@ -197,7 +197,7 @@ fn concurrent_runs_make_one_engine_and_one_app() {
 
 #[test]
 fn run_recovers_after_an_engine_crash() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     assert_eq!(p.run_cmd(&[]).code, 0);
     assert_eq!(p.psql("app", "SELECT 1").stdout.trim(), "1");
 

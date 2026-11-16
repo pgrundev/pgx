@@ -4,10 +4,10 @@
 //! that stops a stale record from deleting a reused name. Cleanup is observed
 //! with bounded polling, never a bare sleep-as-assertion.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::time::{Duration, Instant};
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),
@@ -18,7 +18,7 @@ fn db_exists(p: &PGBoxDB, name: &str) -> bool {
 }
 
 /// Poll until `name` is gone, up to `secs`. Returns true if it disappeared.
-fn wait_gone(p: &PGBoxDB, name: &str, secs: u64) -> bool {
+fn wait_gone(p: &Pgboxdb, name: &str, secs: u64) -> bool {
     let deadline = Instant::now() + Duration::from_secs(secs);
     while Instant::now() < deadline {
         if !db_exists(p, name) {
@@ -29,16 +29,22 @@ fn wait_gone(p: &PGBoxDB, name: &str, secs: u64) -> bool {
     false
 }
 
-fn up(p: &PGBoxDB) {
+fn up(p: &Pgboxdb) {
     // `pgboxdb run` is the real onboarding path: it initialises, starts the runtime,
     // spawns the TTL supervisor, and creates the default `app` database.
     let r = p.run_cmd(&[]);
-    assert_eq!(r.code, 0, "pgboxdb run failed: {}\n{}", r.all(), p.log_tail());
+    assert_eq!(
+        r.code,
+        0,
+        "pgboxdb run failed: {}\n{}",
+        r.all(),
+        p.log_tail()
+    );
 }
 
 #[test]
 fn create_ttl_expires_while_permanent_survives() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "permanent"]).code, 0);
     assert_eq!(p.run(&["create", "temp5", "--ttl", "3s"]).code, 0);
@@ -65,7 +71,7 @@ fn create_ttl_expires_while_permanent_survives() {
 
 #[test]
 fn clone_ttl_expires_and_source_is_preserved() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "src"]).code, 0);
     p.psql("src", "CREATE TABLE d(v int); INSERT INTO d VALUES (7)");
@@ -86,7 +92,7 @@ fn clone_ttl_expires_and_source_is_preserved() {
 
 #[test]
 fn ttl_extension_prevents_the_original_expiry() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "extend-me", "--ttl", "3s"]).code, 0);
     assert_eq!(p.run(&["ttl", "extend-me", "1h"]).code, 0);
@@ -101,7 +107,7 @@ fn ttl_extension_prevents_the_original_expiry() {
 
 #[test]
 fn ttl_unlimited_disables_expiry() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "keep-me", "--ttl", "3s"]).code, 0);
     assert_eq!(p.run(&["ttl", "keep-me", "unlimited"]).code, 0);
@@ -117,7 +123,7 @@ fn ttl_unlimited_disables_expiry() {
 
 #[test]
 fn ttl_cleanup_resumes_after_restart() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "permanent"]).code, 0);
     assert_eq!(p.run(&["create", "short", "--ttl", "3s"]).code, 0);
@@ -135,7 +141,7 @@ fn ttl_cleanup_resumes_after_restart() {
 
 #[test]
 fn default_create_is_unlimited_and_never_expires() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "plain"]).code, 0);
     // No TTL record is written for an unlimited database.
@@ -153,7 +159,7 @@ fn default_create_is_unlimited_and_never_expires() {
 
 #[test]
 fn ttl_is_not_inherited_on_clone() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "tsrc", "--ttl", "30s"]).code, 0);
     // Clone without --ttl: the child must be unlimited, not inherit 30s.
@@ -168,7 +174,7 @@ fn ttl_is_not_inherited_on_clone() {
 
 #[test]
 fn stale_ttl_record_never_deletes_a_reused_name() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "reuse", "--ttl", "3s"]).code, 0);
     // Drop and recreate OUTSIDE pgboxdb, so the TTL record (old OID) is left stale
@@ -195,7 +201,7 @@ fn stale_ttl_record_never_deletes_a_reused_name() {
 
 #[test]
 fn many_temporary_branches_expire_on_one_runtime() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert_eq!(p.run(&["create", "base"]).code, 0);
     // 12 clones with a short TTL, all on the single shared runtime.
@@ -252,7 +258,7 @@ fn stop_stops_the_supervisor_and_restart_respawns_it() {
     // supervisor can never hold the single-instance lock across a restart (which
     // left no supervisor running after a PGBOXDB_HOME relocation). A later start must
     // bring a fresh supervisor back and cleanup must resume.
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     up(&p);
     assert!(
         p.wait_supervisor(10),

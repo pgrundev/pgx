@@ -265,6 +265,26 @@ pub fn strip_block(text: &str, begin: &str, end: &str) -> Option<String> {
     Some(out)
 }
 
+/// The rc text without our block: the current one and/or the one written
+/// before the rename (which ran the previous CLI). None when neither is there.
+pub fn strip_rc_blocks(text: &str) -> Option<String> {
+    let a = strip_block(text, RC_BEGIN, RC_END);
+    let base = a.clone().unwrap_or_else(|| text.to_string());
+    match strip_block(&base, crate::legacy::RC_BEGIN, crate::legacy::RC_END) {
+        Some(b) => Some(b),
+        None => a,
+    }
+}
+
+/// rc files that still carry the block written before the rename.
+pub fn legacy_rc_files() -> Vec<std::path::PathBuf> {
+    ["zsh", "bash", "fish"]
+        .iter()
+        .filter_map(|s| rc_file(s).ok())
+        .filter(|p| std::fs::read_to_string(p).is_ok_and(|t| t.contains(crate::legacy::RC_BEGIN)))
+        .collect()
+}
+
 pub fn shell_installed(shell: &str) -> bool {
     rc_file(shell)
         .ok()
@@ -292,6 +312,16 @@ pub fn default_shell() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rc_blocks_from_before_the_rename_are_stripped() {
+        let rc = "export A=1\n# >>> pgx git shell integration >>>\neval \"$(pgx git shell zsh)\"\n# <<< pgx git shell integration <<<\nexport B=2\n";
+        assert_eq!(
+            strip_rc_blocks(rc).as_deref(),
+            Some("export A=1\nexport B=2\n")
+        );
+        assert!(strip_rc_blocks("export A=1\n").is_none());
+    }
 
     #[test]
     fn quoting_survives_hostile_values() {

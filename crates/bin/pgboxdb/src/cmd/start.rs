@@ -103,7 +103,10 @@ fn start_locked(out: &Out, ctx: &Ctx) -> Result<StartOutcome> {
     }
     // pgboxdb.conf is regenerated from config.json on every start.
     let block_clone = fsdetect::supports_block_clone(&ctx.home.data);
-    let pgboxdb_conf = ctx.home.data.join("pgboxdb.conf");
+    let pgboxdb_conf = ctx
+        .home
+        .data
+        .join(crate::legacy::profile_conf_name(&ctx.home.data));
     std::fs::write(
         &pgboxdb_conf,
         conf::render_pgboxdb_conf(&ctx.config, &sock_dir, block_clone),
@@ -253,7 +256,10 @@ pub fn serve(out: &Out) -> Result<ExitCode> {
     use crate::layout::Home;
     let home = Home::resolve();
     if !home.is_initialized() {
-        let port = std::env::var("PGBOXDB_PORT").ok().and_then(|p| p.parse().ok());
+        crate::legacy::guard_new_home(&home)?;
+        let port = std::env::var("PGBOXDB_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
         let durability = std::env::var("PGBOXDB_DURABILITY").ok();
         out.note("pgboxdb serve: initialising a new cluster");
         crate::cmd::init::run(out, port, durability, false)?;
@@ -264,7 +270,9 @@ pub fn serve(out: &Out) -> Result<ExitCode> {
             ExitCode::Conflict,
             format!("PGBoxDB is already running (pid {pid})"),
         )
-        .hint("`pgboxdb serve` runs the engine in the foreground; stop the background runtime first"));
+        .hint(
+            "`pgboxdb serve` runs the engine in the foreground; stop the background runtime first",
+        ));
     }
     let sock_dir = ctx.sock_dir();
     let pid_file = ctx.home.data.join("postmaster.pid");
@@ -273,13 +281,17 @@ pub fn serve(out: &Out) -> Result<ExitCode> {
     }
     crate::process::clear_stale_socket_lock(&sock_dir, ctx.config.port);
     let block_clone = fsdetect::supports_block_clone(&ctx.home.data);
-    let pgboxdb_conf = ctx.home.data.join("pgboxdb.conf");
+    let pgboxdb_conf = ctx
+        .home
+        .data
+        .join(crate::legacy::profile_conf_name(&ctx.home.data));
     std::fs::write(
         &pgboxdb_conf,
         conf::render_pgboxdb_conf(&ctx.config, &sock_dir, block_clone),
     )
     .map_err(|e| PgboxdbError::io("cannot write", &pgboxdb_conf, &e))?;
-    std::fs::create_dir_all(&sock_dir).map_err(|e| PgboxdbError::io("cannot create", &sock_dir, &e))?;
+    std::fs::create_dir_all(&sock_dir)
+        .map_err(|e| PgboxdbError::io("cannot create", &sock_dir, &e))?;
     // Start the TTL worker before we exec the engine (this process is replaced).
     // It polls until the engine accepts connections, then cleans up normally.
     spawn_supervisor(&ctx.home);

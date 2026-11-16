@@ -67,7 +67,7 @@ class CliResult:
         return "exit %d\nstdout: %s\nstderr: %s" % (self.code, self.stdout, self.stderr)
 
 
-class PGBoxDB:
+class Pgboxdb:
     def __init__(self, name="t", durability=None, keep=False):
         self.prefix = dist_prefix()
         self.home = os.path.join(scratch_root(), "%s-%d-%s" % (name, os.getpid(), free_port()))

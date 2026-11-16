@@ -51,7 +51,7 @@ pub fn output_locked(cmd: &mut Command) -> std::io::Result<Output> {
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 static PORT_SEQ: AtomicU32 = AtomicU32::new(0);
 
-pub struct PGBoxDB {
+pub struct Pgboxdb {
     pub prefix: PathBuf,
     pub home: PathBuf,
     pub port: u16,
@@ -68,7 +68,11 @@ pub fn dist_prefix() -> PathBuf {
         "share/pgboxdb/base-cluster/PG_VERSION",
         "share/pgboxdb/dist.json",
     ] {
-        assert!(p.join(rel).exists(), "PGBOXDB_DIST={} lacks {rel}", p.display());
+        assert!(
+            p.join(rel).exists(),
+            "PGBOXDB_DIST={} lacks {rel}",
+            p.display()
+        );
     }
     p
 }
@@ -108,9 +112,9 @@ pub fn scratch_root() -> PathBuf {
     root
 }
 
-impl PGBoxDB {
+impl Pgboxdb {
     /// A fresh harness: prefix and home created, nothing initialised yet.
-    pub fn new() -> PGBoxDB {
+    pub fn new() -> Pgboxdb {
         let dist = dist_prefix();
         let id = format!(
             "{}-{}",
@@ -125,15 +129,15 @@ impl PGBoxDB {
         std::fs::copy(env!("CARGO_BIN_EXE_pgboxdb"), prefix.join("bin/pgboxdb")).unwrap();
         std::os::unix::fs::symlink(dist.join("bin/postgres"), prefix.join("bin/postgres")).unwrap();
         std::os::unix::fs::symlink(dist.join("share"), prefix.join("share")).unwrap();
-        PGBoxDB {
+        Pgboxdb {
             prefix,
             home,
             port: free_port(),
         }
     }
 
-    pub fn with_home(home: PathBuf) -> PGBoxDB {
-        let mut p = PGBoxDB::new();
+    pub fn with_home(home: PathBuf) -> Pgboxdb {
+        let mut p = Pgboxdb::new();
         std::fs::create_dir_all(&home).unwrap();
         p.home = home;
         p
@@ -277,7 +281,10 @@ impl PGBoxDB {
                 }
             }
         }
-        panic!("could not spawn pgboxdb run after retries: {}", last.unwrap());
+        panic!(
+            "could not spawn pgboxdb run after retries: {}",
+            last.unwrap()
+        );
     }
 
     pub fn init_ok(&self) {
@@ -413,7 +420,7 @@ pub fn find_psql() -> PathBuf {
     PathBuf::from("psql")
 }
 
-impl Drop for PGBoxDB {
+impl Drop for Pgboxdb {
     fn drop(&mut self) {
         // Stop the TTL supervisor first so it does not linger after the home is gone.
         if let Some(pid) = self.supervisor_pid() {
@@ -646,7 +653,7 @@ impl Drop for PgSource {
     }
 }
 
-impl PGBoxDB {
+impl Pgboxdb {
     /// `pgboxdb [--json] copy --from <src url> --to <dest> [extra…]` with the test
     /// PostgreSQL bin directory pinned, so the tools under test are the same
     /// ones that created the source.

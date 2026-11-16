@@ -71,7 +71,8 @@ mod tests {
 
     #[test]
     fn error_carries_exit_code_and_hint() {
-        let e = PgboxdbError::new(ExitCode::NotFound, "database \"x\" does not exist").hint("pgboxdb ls");
+        let e = PgboxdbError::new(ExitCode::NotFound, "database \"x\" does not exist")
+            .hint("pgboxdb ls");
         assert_eq!(e.code, ExitCode::NotFound);
         assert_eq!(e.message, "database \"x\" does not exist");
         assert_eq!(e.hint.as_deref(), Some("pgboxdb ls"));

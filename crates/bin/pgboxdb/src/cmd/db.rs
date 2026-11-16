@@ -210,7 +210,9 @@ pub fn drop(out: &Out, name: &str, force: bool) -> Result<ExitCode> {
     client.simple_query(&sql).map_err(|e| {
         let err = db_error(e, &format!("cannot drop database {name}"));
         if err.code == ExitCode::InUse {
-            err.hint("disconnect the clients, or `pgboxdb drop --force` to terminate their sessions")
+            err.hint(
+                "disconnect the clients, or `pgboxdb drop --force` to terminate their sessions",
+            )
         } else {
             err
         }

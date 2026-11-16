@@ -4,7 +4,7 @@
 //! the parent session's branch is never involved. Payloads are in Claude
 //! Code's documented shapes (session_id + agent_id + agent_type).
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 const SID: &str = "f775e29e-e738-4f37-93b4-9b82f539ba81";
 
-fn up_with_source() -> (PGBoxDB, PathBuf) {
-    let p = PGBoxDB::new();
+fn up_with_source() -> (Pgboxdb, PathBuf) {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -42,7 +42,7 @@ fn path_with_psql() -> String {
 
 /// `pgboxdb agent hook` with `payload` on stdin, from the home dir (the payload's
 /// cwd locates the project), with Claude's environment marker.
-fn hook(p: &PGBoxDB, payload: &str) -> common::Run {
+fn hook(p: &Pgboxdb, payload: &str) -> common::Run {
     let mut c = p.cmd(&["agent", "hook"]);
     c.current_dir(&p.home)
         .env("CLAUDE_PROJECT_DIR", p.home.parent().unwrap().join("proj"))
@@ -73,7 +73,7 @@ fn payload(event: &str, cwd: &Path, extra: Value) -> String {
     v.to_string()
 }
 
-fn subagent_start(p: &PGBoxDB, proj: &Path, agent: &str) -> common::Run {
+fn subagent_start(p: &Pgboxdb, proj: &Path, agent: &str) -> common::Run {
     hook(
         p,
         &payload(
@@ -84,7 +84,7 @@ fn subagent_start(p: &PGBoxDB, proj: &Path, agent: &str) -> common::Run {
     )
 }
 
-fn subagent_stop(p: &PGBoxDB, proj: &Path, agent: &str) -> common::Run {
+fn subagent_stop(p: &Pgboxdb, proj: &Path, agent: &str) -> common::Run {
     hook(
         p,
         &payload(
@@ -96,7 +96,7 @@ fn subagent_stop(p: &PGBoxDB, proj: &Path, agent: &str) -> common::Run {
 }
 
 fn pre_tool_use(
-    p: &PGBoxDB,
+    p: &Pgboxdb,
     proj: &Path,
     agent: Option<&str>,
     tool: &str,
@@ -128,7 +128,7 @@ fn routed_command(r: &common::Run) -> String {
 /// Run a (routed) command the way the Bash tool does: a fresh shell, the
 /// parent session's exports inherited (here: a decoy DATABASE_URL and
 /// PGDATABASE that must lose), psql on PATH.
-fn run_shell(p: &PGBoxDB, proj: &Path, command: &str) -> common::Run {
+fn run_shell(p: &Pgboxdb, proj: &Path, command: &str) -> common::Run {
     let mut c = Command::new("/bin/sh");
     c.arg("-c")
         .arg(command)
@@ -142,7 +142,7 @@ fn run_shell(p: &PGBoxDB, proj: &Path, command: &str) -> common::Run {
     common::Run::from(common::output_locked(&mut c).expect("spawn sh"))
 }
 
-fn agent_ls(p: &PGBoxDB) -> Vec<Value> {
+fn agent_ls(p: &Pgboxdb) -> Vec<Value> {
     p.run(&["--json", "agent", "ls"])
         .json()
         .as_array()
@@ -150,14 +150,14 @@ fn agent_ls(p: &PGBoxDB) -> Vec<Value> {
         .clone()
 }
 
-fn branch_of(p: &PGBoxDB, agent: Option<&str>) -> Option<String> {
+fn branch_of(p: &Pgboxdb, agent: Option<&str>) -> Option<String> {
     agent_ls(p)
         .iter()
         .find(|r| r["agent"]["session_id"] == SID && r["agent"]["agent_id"] == json!(agent))
         .map(|r| r["name"].as_str().unwrap().to_string())
 }
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),

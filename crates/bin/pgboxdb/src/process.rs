@@ -463,7 +463,14 @@ mod tests {
         let a = engine_args(&home, &cfg, Path::new("/h/.pgboxdb/run"));
         assert_eq!(
             a[..6],
-            ["-D", "/h/.pgboxdb/data", "-k", "/h/.pgboxdb/run", "-p", "5455"]
+            [
+                "-D",
+                "/h/.pgboxdb/data",
+                "-k",
+                "/h/.pgboxdb/run",
+                "-p",
+                "5455"
+            ]
         );
         assert!(a.contains(&"io_method=sync".to_string()));
     }

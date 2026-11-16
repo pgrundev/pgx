@@ -61,7 +61,9 @@ fn find_root(dir: &Path) -> Option<(PathBuf, Option<PathBuf>)> {
         if f.is_file() {
             return Some((d.to_path_buf(), Some(f)));
         }
-        if is_repo_root(d) {
+        // A project file from before the rename marks the root too, so that
+        // `locate` can refuse it instead of walking past it.
+        if crate::legacy::only_legacy_project_file(d) || is_repo_root(d) {
             return Some((d.to_path_buf(), None));
         }
         cur = d.parent();
@@ -85,6 +87,9 @@ pub fn locate(start: &Path, fallbacks: &[PathBuf]) -> Result<ProjectConfig> {
     });
     let (root, config_file) = found.unwrap_or((start.clone(), None));
     let root = canon(&root);
+    if config_file.is_none() && crate::legacy::only_legacy_project_file(&root) {
+        return Err(crate::legacy::project_file_error(&root));
+    }
     let parsed = match &config_file {
         Some(f) => {
             let text =
@@ -268,6 +273,24 @@ mod tests {
     }
 
     #[test]
+    fn a_project_with_only_the_previous_file_is_refused_not_ignored() {
+        let d = tmp("legacy");
+        std::fs::write(
+            d.join(crate::legacy::PROJECT_FILE),
+            "[agent]\nsource = \"app_tpl\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        let e = locate(&d.join("sub"), &[]).unwrap_err();
+        assert_eq!(e.code, crate::cli::ExitCode::NotReady);
+        assert!(e.message.contains("before the rename"), "{}", e.message);
+        // Once the current file exists, it wins and the previous one is ignored.
+        std::fs::write(d.join(CONFIG_FILE), "[agent]\nsource = \"app_tpl\"\n").unwrap();
+        let p = locate(&d.join("sub"), &[]).unwrap();
+        assert_eq!(p.source.as_deref(), Some("app_tpl"));
+    }
+
+    #[test]
     fn toml_subset_reads_the_agent_table() {
         let (s, t, g) = parse_pgboxdb_toml(
             "# PGBoxDB agent config\n[agent]\nsource = \"myapp_template\"\nidle_ttl = \"3h\"\n",
@@ -347,7 +370,11 @@ mod tests {
         assert!(p.source.is_none());
         assert_eq!(p.project_id.len(), 16);
         // A .pgboxdb.toml below the git root wins over it.
-        std::fs::write(root.join("sub/.pgboxdb.toml"), "[agent]\nsource = \"tpl\"\n").unwrap();
+        std::fs::write(
+            root.join("sub/.pgboxdb.toml"),
+            "[agent]\nsource = \"tpl\"\n",
+        )
+        .unwrap();
         let p = locate(&root.join("sub/deep"), &[]).unwrap();
         assert_eq!(p.root, std::fs::canonicalize(root.join("sub")).unwrap());
         assert_eq!(p.source.as_deref(), Some("tpl"));
@@ -392,7 +419,11 @@ mod tests {
         assert!(p.source.is_none(), "{p:?}");
         assert!(p.config_file.is_none());
         // A toml inside the repository root still wins.
-        std::fs::write(outer.join("repo/.pgboxdb.toml"), "[agent]\nsource = \"mine\"\n").unwrap();
+        std::fs::write(
+            outer.join("repo/.pgboxdb.toml"),
+            "[agent]\nsource = \"mine\"\n",
+        )
+        .unwrap();
         assert_eq!(
             locate(&outer.join("repo/src"), &[])
                 .unwrap()

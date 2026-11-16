@@ -166,7 +166,8 @@ fn load_doc(path: &Path, host: Host) -> Result<Value> {
 
 fn write_doc(path: &Path, doc: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| PgboxdbError::io("cannot create", parent, &e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| PgboxdbError::io("cannot create", parent, &e))?;
     }
     let tmp = path.with_extension("json.pgboxdb-tmp");
     let text = serde_json::to_string_pretty(doc).expect("json") + "\n";
@@ -179,6 +180,31 @@ fn write_doc(path: &Path, doc: &Value) -> Result<()> {
 /// mention the marker do not count.
 pub fn is_our_command(cmd: &Value) -> bool {
     cmd.as_str().is_some_and(|c| c.contains(MARKER))
+}
+
+/// A hook command written before the rename (it runs the previous CLI).
+/// `install` replaces such entries and `uninstall` removes them; they are
+/// never kept beside ours, which would give a session two databases.
+pub fn is_legacy_command(cmd: &Value) -> bool {
+    cmd.as_str()
+        .is_some_and(|c| c.contains(crate::legacy::AGENT_HOOK_MARKER) && !c.contains(MARKER))
+}
+
+/// Any hook entry in a settings document written before the rename.
+pub fn has_legacy(doc: &Value) -> bool {
+    doc["hooks"].as_object().is_some_and(|h| {
+        h.values()
+            .filter_map(|l| l.as_array())
+            .flatten()
+            .any(is_legacy)
+    })
+}
+
+pub fn is_legacy(entry: &Value) -> bool {
+    is_legacy_command(&entry["command"])
+        || entry["hooks"]
+            .as_array()
+            .is_some_and(|hs| hs.iter().any(|h| is_legacy_command(&h["command"])))
 }
 
 pub fn is_ours(entry: &Value) -> bool {
@@ -200,6 +226,10 @@ fn merge_install(doc: &mut Value, host: Host) -> (usize, usize) {
     }
     if !doc.get("hooks").is_some_and(|h| h.is_object()) {
         doc["hooks"] = json!({});
+    }
+    // Entries written before the rename are replaced by ours below.
+    if has_legacy(doc) {
+        remove_matching(doc, is_legacy_command, false);
     }
     let (mut added, mut present) = (0, 0);
     for (event, matcher, timeout) in events(host) {
@@ -228,6 +258,19 @@ fn merge_install(doc: &mut Value, host: Host) -> (usize, usize) {
 /// sharing the group stays). Groups and event arrays left empty are dropped.
 /// Returns the number of hook commands removed.
 fn merge_uninstall(doc: &mut Value) -> usize {
+    remove_matching(doc, |c| is_our_command(c) || is_legacy_command(c), true)
+}
+
+/// Remove hook commands for which `matches` holds. Groups emptied by that
+/// removal are dropped, and so are event arrays left empty. With
+/// `drop_empty_groups` (uninstall, the historical behaviour) every empty
+/// group goes; without it (install replacing entries from before the
+/// rename) a foreign empty group is left exactly as it was.
+fn remove_matching(
+    doc: &mut Value,
+    matches: impl Fn(&Value) -> bool,
+    drop_empty_groups: bool,
+) -> usize {
     let mut removed = 0;
     let Some(hooks) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return 0;
@@ -237,23 +280,29 @@ fn merge_uninstall(doc: &mut Value) -> usize {
         let Some(arr) = list.as_array_mut() else {
             continue;
         };
-        for entry in arr.iter_mut() {
+        let removed_before = removed;
+        let mut emptied_by_us = vec![false; arr.len()];
+        for (i, entry) in arr.iter_mut().enumerate() {
             if let Some(inner) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
                 let before = inner.len();
-                inner.retain(|h| !is_our_command(&h["command"]));
+                inner.retain(|h| !matches(&h["command"]));
                 removed += before - inner.len();
+                emptied_by_us[i] = before > 0 && inner.is_empty();
             }
         }
-        let cursor_ours = arr.iter().filter(|e| is_our_command(&e["command"])).count();
+        let cursor_ours = arr.iter().filter(|e| matches(&e["command"])).count();
         removed += cursor_ours;
+        let mut i = 0;
         arr.retain(|e| {
             let emptied = e
                 .get("hooks")
                 .and_then(|h| h.as_array())
-                .is_some_and(|h| h.is_empty());
-            !(is_our_command(&e["command"]) || emptied)
+                .is_some_and(|h| h.is_empty())
+                && (drop_empty_groups || emptied_by_us[i]);
+            i += 1;
+            !(matches(&e["command"]) || emptied)
         });
-        if arr.is_empty() {
+        if arr.is_empty() && (drop_empty_groups || removed > removed_before) {
             empty.push(event.clone());
         }
     }
@@ -505,8 +554,11 @@ pub fn setup(out: &Out, opts: SetupOpts, cwd: &Path) -> Result<ExitCode> {
     let initialized = if home.is_initialized() {
         false
     } else {
+        crate::legacy::guard_new_home(&home)?;
         out.note("initialising a new PGBoxDB cluster…");
-        let port = std::env::var("PGBOXDB_PORT").ok().and_then(|p| p.parse().ok());
+        let port = std::env::var("PGBOXDB_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
         let durability = std::env::var("PGBOXDB_DURABILITY").ok();
         crate::cmd::init::run(&quiet, port, durability, false)?;
         true
@@ -646,7 +698,9 @@ pub fn setup(out: &Out, opts: SetupOpts, cwd: &Path) -> Result<ExitCode> {
     }
     text.push_str("Next: start a new agent session; it gets its own branch automatically.\n");
     if toml.written {
-        text.push_str("      Commit .pgboxdb.toml so every checkout branches from the same source.\n");
+        text.push_str(
+            "      Commit .pgboxdb.toml so every checkout branches from the same source.\n",
+        );
     }
     out.emit(
         text.trim_end(),
@@ -677,6 +731,44 @@ fn human_size(b: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_replaces_entries_written_before_the_rename() {
+        let legacy = "/bin/sh -c 'PATH=\"$PATH:~/.local/bin\"; command -v pgx >/dev/null 2>&1 && exec pgx agent hook; exit 0'";
+        let mut doc = json!({"hooks": {
+            "SessionStart": [
+                {"hooks": [{"type": "command", "command": legacy}]},
+                {"hooks": [{"type": "command", "command": "other"}]}
+            ],
+            "Stop": [{"hooks": [{"type": "command", "command": legacy}, {"type": "command", "command": "keep-me"}]}],
+            "Unrelated": [{"hooks": []}]
+        }});
+        assert!(has_legacy(&doc));
+        assert_eq!(merge_install(&mut doc, Host::Claude), (6, 0));
+        assert!(!has_legacy(&doc), "{doc}");
+        let text = doc.to_string();
+        assert!(!text.contains("exec pgx agent hook"), "{text}");
+        assert_eq!(text.matches(MARKER).count(), 6, "{text}");
+        // Foreign hooks stay, including one sharing a group with an old entry,
+        // and an empty foreign group is not tidied away by install.
+        assert!(
+            text.contains("\"other\"") && text.contains("\"keep-me\""),
+            "{text}"
+        );
+        assert!(doc["hooks"]["Unrelated"].is_array(), "{text}");
+        // Idempotent afterwards.
+        assert_eq!(merge_install(&mut doc, Host::Claude), (0, 6));
+    }
+
+    #[test]
+    fn uninstall_removes_current_and_previous_entries_only() {
+        let legacy = "exec pgx agent hook --host cursor";
+        let mut doc = json!({"version": 1, "hooks": {"sessionStart": [
+            {"command": legacy}, {"command": "pgboxdb agent hook --host cursor"}, {"command": "other"}
+        ]}});
+        assert_eq!(merge_uninstall(&mut doc), 2);
+        assert_eq!(doc["hooks"]["sessionStart"], json!([{"command": "other"}]));
+    }
 
     #[test]
     fn merge_is_idempotent_and_keeps_foreign_entries() {

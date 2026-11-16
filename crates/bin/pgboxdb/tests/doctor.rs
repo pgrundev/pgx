@@ -1,5 +1,5 @@
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 
 fn checks(j: &serde_json::Value) -> Vec<(String, String, String)> {
     j["checks"]
@@ -26,7 +26,7 @@ fn status_of(j: &serde_json::Value, name: &str) -> (String, String) {
 
 #[test]
 fn doctor_ok_on_fresh_init() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let r = p.run(&["--json", "doctor"]);
     assert_eq!(r.code, 0, "{}", r.all());
@@ -62,7 +62,7 @@ fn doctor_ok_on_fresh_init() {
 
 #[test]
 fn doctor_reports_missing_share_dir_as_fail() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     std::fs::remove_file(p.prefix.join("share")).unwrap();
     std::fs::create_dir_all(p.prefix.join("share/timezonesets")).unwrap();
     let r = p.run(&["--json", "doctor"]);
@@ -79,7 +79,7 @@ fn doctor_reports_missing_share_dir_as_fail() {
 
 #[test]
 fn doctor_before_init_points_at_init() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.run(&["--json", "doctor"]);
     assert_eq!(r.code, 1, "{}", r.all());
     let j = r.json();
@@ -99,7 +99,7 @@ fn doctor_before_init_points_at_init() {
 
 #[test]
 fn doctor_detects_port_conflict_and_stale_pid() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let busy = std::net::TcpListener::bind(("127.0.0.1", p.port)).unwrap();
     let j = p.run(&["--json", "doctor"]).json();
@@ -124,7 +124,7 @@ fn doctor_detects_port_conflict_and_stale_pid() {
 
 #[test]
 fn doctor_running_reports_libraries_and_pid() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let r = p.run(&["--json", "doctor"]);
@@ -145,7 +145,7 @@ fn doctor_running_reports_libraries_and_pid() {
 #[test]
 fn doctor_warns_on_loose_config_permissions() {
     use std::os::unix::fs::PermissionsExt;
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     std::fs::set_permissions(
         p.home.join("config.json"),
@@ -160,7 +160,7 @@ fn doctor_warns_on_loose_config_permissions() {
 
 #[test]
 fn doctor_reports_old_orphan_dirs_but_not_fresh_ones() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let base = p.home.join("data/base");

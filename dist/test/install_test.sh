@@ -49,6 +49,12 @@ if sh "$ROOT/dist/install.sh" >"$TMP/bad.log" 2>&1; then fail "install.sh accept
 grep -q "checksum mismatch" "$TMP/bad.log" || fail "install.sh did not report a checksum mismatch"
 [ ! -d "$TMP/opt/pgboxdb-bad" ] || fail "install.sh left a partial install after a checksum failure"
 
+# A distribution from before the rename at the target is never replaced.
+mkdir -p "$TMP/opt/prev/share/pgx" && echo '{"pgx_version":"x"}' > "$TMP/opt/prev/share/pgx/dist.json"
+if PGBOXDB_INSTALL_DIR="$TMP/opt/prev" sh "$ROOT/dist/install.sh" >"$TMP/prev.log" 2>&1; then fail "install.sh replaced a pre-rename distribution"; fi
+grep -q "before the rename to PGBoxDB" "$TMP/prev.log" || fail "install.sh did not explain the refusal: $(cat "$TMP/prev.log")"
+[ -f "$TMP/opt/prev/share/pgx/dist.json" ] || fail "install.sh touched the pre-rename distribution"
+
 # Unsupported platform is refused.
 if PGBOXDB_BASE_URL="http://127.0.0.1:$PORT" sh -c "uname() { echo Plan9; }; . '$ROOT/dist/install.sh'" >/dev/null 2>&1; then
   :  # the function-override trick is best-effort; skip if the shell inlines uname

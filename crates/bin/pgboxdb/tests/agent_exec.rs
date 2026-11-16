@@ -2,14 +2,14 @@
 //! lifetime of any process, with the environment, signals and exit status
 //! handled the way a wrapper must.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn up_with_source() -> (PGBoxDB, PathBuf) {
-    let p = PGBoxDB::new();
+fn up_with_source() -> (Pgboxdb, PathBuf) {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -32,7 +32,7 @@ fn path_with_psql() -> String {
     )
 }
 
-fn exec_cmd(p: &PGBoxDB, proj: &std::path::Path, env: &[(&str, &str)], args: &[&str]) -> Command {
+fn exec_cmd(p: &Pgboxdb, proj: &std::path::Path, env: &[(&str, &str)], args: &[&str]) -> Command {
     let mut full = vec!["agent", "exec"];
     full.extend_from_slice(args);
     let mut c = p.cmd(&full);
@@ -43,11 +43,11 @@ fn exec_cmd(p: &PGBoxDB, proj: &std::path::Path, env: &[(&str, &str)], args: &[&
     c
 }
 
-fn exec(p: &PGBoxDB, proj: &std::path::Path, env: &[(&str, &str)], args: &[&str]) -> common::Run {
+fn exec(p: &Pgboxdb, proj: &std::path::Path, env: &[(&str, &str)], args: &[&str]) -> common::Run {
     p.output_retrying_pub(|| exec_cmd(p, proj, env, args), "pgboxdb agent exec")
 }
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),
@@ -57,7 +57,7 @@ fn db_exists(p: &PGBoxDB, name: &str) -> bool {
         == "1"
 }
 
-fn agent_ls(p: &PGBoxDB) -> Vec<Value> {
+fn agent_ls(p: &Pgboxdb) -> Vec<Value> {
     p.run(&["--json", "agent", "ls"])
         .json()
         .as_array()

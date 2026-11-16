@@ -3,6 +3,40 @@
 A self-contained, relocatable, PostgreSQL 18 compatible runtime for local
 development, CI and disposable databases. No system PostgreSQL required.
 
+## PGBoxDB vNEXT — the first release under the PGBoxDB name
+
+<!-- Release PR: replace vNEXT with the release version. It must be a version
+     never published before the rename (0.2.0 or later): see
+     reports/PGBOXDB_RELEASE_CHECKLIST.md. -->
+
+This runtime is now **PGBoxDB**: a lightweight Postgres-compatible database
+runtime for AI agents. Home: https://pgboxdb.com · documentation:
+https://pgbox.dev/db.
+
+```sh
+npx pgboxdb@latest          # or: curl -fsSL https://pgboxdb.com/install | sh
+pgboxdb --version
+```
+
+- **One name everywhere:** the command is `pgboxdb`, the npm package is
+  `pgboxdb`, environment variables are `PGBOXDB_*`, the data home is
+  `~/.pgboxdb`, the project file is `.pgboxdb.toml`, release assets are
+  `pgboxdb-<version>-<os>-<arch>.tar.gz`. Commands, flags, JSON output and exit
+  codes are otherwise unchanged; `pgboxdb --json version` reports
+  `pgboxdb_version`.
+- **Existing installations are never forked or lost.** When databases from
+  before the rename exist, `pgboxdb` refuses to create a new, empty home beside
+  them and points at `pgboxdb migrate`: a dry run by default, one atomic rename
+  of the data home with `--apply`, copies of the project file and Git identity
+  files under their new names, and `--rollback`. Nothing is deleted.
+  Previous environment variables, project files and hook entries are not read
+  as aliases; they are reported, and `pgboxdb agent install`, `pgboxdb git
+  init` and `pgboxdb git install-shell` replace the previous entries in place.
+  Guide: docs/pgboxdb/local-dev/upgrading.md.
+- **Docker:** the image runs as user `pgboxdb` (uid 10001, unchanged) with its
+  volume at `/var/lib/pgboxdb`. A volume from the previous image works when
+  mounted there.
+
 ## PGBoxDB v0.1.3 — One Git Branch, One Isolated Postgres
 
 `pgboxdb git` gives every Git branch, in every worktree, its own copy-on-write

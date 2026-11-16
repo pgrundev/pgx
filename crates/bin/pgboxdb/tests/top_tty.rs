@@ -4,7 +4,7 @@
 //! and that the terminal is restored — alternate screen left, cursor shown,
 //! canonical mode and echo back on — after `q`, Ctrl-C and SIGTERM.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::process::{Child, Command, Stdio};
@@ -242,7 +242,7 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-fn demo_cmd(p: &PGBoxDB, home: &std::path::Path, extra: &[&str]) -> Command {
+fn demo_cmd(p: &Pgboxdb, home: &std::path::Path, extra: &[&str]) -> Command {
     let mut args = vec!["top", "--demo"];
     args.extend_from_slice(extra);
     let mut c = p.cmd(&args);
@@ -252,7 +252,7 @@ fn demo_cmd(p: &PGBoxDB, home: &std::path::Path, extra: &[&str]) -> Command {
 
 #[test]
 fn demo_session_keys_resize_and_quit() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("no-home-for-demo");
     let mut t = Tty::spawn(demo_cmd(&p, &home, &[]), 100, 30);
     t.expect("PGBoxDB TOP", 0, 15);
@@ -300,7 +300,7 @@ fn demo_session_keys_resize_and_quit() {
 
 #[test]
 fn ctrl_c_quits_cleanly() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("absent");
     let mut t = Tty::spawn(demo_cmd(&p, &home, &["--no-color"]), 80, 24);
     t.expect("PGBoxDB TOP", 0, 15);
@@ -330,7 +330,7 @@ fn ctrl_c_quits_cleanly() {
 
 #[test]
 fn sigterm_restores_the_terminal() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("absent");
     let mut t = Tty::spawn(demo_cmd(&p, &home, &[]), 80, 24);
     t.expect("PGBoxDB TOP", 0, 15);
@@ -345,7 +345,7 @@ fn sigterm_restores_the_terminal() {
 #[test]
 fn hangup_of_the_terminal_exits() {
     // The terminal goes away (an ssh disconnect): the monitor must exit, not spin.
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("absent");
     let mut t = Tty::spawn(demo_cmd(&p, &home, &[]), 80, 24);
     t.expect("PGBoxDB TOP", 0, 15);
@@ -358,7 +358,7 @@ fn hangup_of_the_terminal_exits() {
 
 #[test]
 fn live_runtime_smoke_on_a_pty() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "smoke_db"]).code, 0);

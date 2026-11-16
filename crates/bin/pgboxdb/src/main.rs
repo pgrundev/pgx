@@ -8,6 +8,7 @@ mod errors;
 mod fsdetect;
 mod fsutil;
 mod layout;
+mod legacy;
 mod names;
 mod out;
 mod pgtools;
@@ -45,6 +46,22 @@ fn main() {
 
 fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
     let out = out::Out::new(global.json);
+    // Environment variables from before the rename are never read; say so
+    // where a user configures or inspects the runtime (not in hooks).
+    if matches!(
+        command,
+        Command::Init { .. }
+            | Command::Run
+            | Command::Start
+            | Command::Serve
+            | Command::Status
+            | Command::Doctor
+            | Command::Migrate(_)
+    ) {
+        if let Some(n) = legacy::ignored_env_note() {
+            out.note(&n);
+        }
+    }
     match command {
         Command::Help => {
             print!("{}", cli::help_text());
@@ -60,6 +77,7 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
         Command::Run => cmd::run::run(&out),
         Command::Supervise => cmd::supervise::run(&out),
         Command::Doctor => cmd::doctor::run(&out),
+        Command::Migrate(opts) => cmd::migrate::run(&out, &opts),
         // Agent commands manage initialisation themselves (`setup` initialises;
         // `hook` must degrade gracefully instead of pointing at `pgboxdb init`).
         Command::Agent(cmd) => cmd::agent::run(&out, cmd),
@@ -74,7 +92,10 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
                     ExitCode::NotReady,
                     format!("PGBoxDB is not initialised at {}", home.root.display()),
                 )
-                .hint("run `pgboxdb init` first"));
+                .hint(
+                    legacy::uninitialised_hint(&home)
+                        .unwrap_or_else(|| "run `pgboxdb init` first".to_string()),
+                ));
             }
             match other {
                 Command::Start => cmd::start::run(&out),
@@ -100,6 +121,7 @@ fn run(global: cli::Global, command: Command) -> Result<ExitCode> {
                 | Command::Init { .. }
                 | Command::Run
                 | Command::Doctor
+                | Command::Migrate(_)
                 | Command::Agent(_)
                 | Command::Git(_)
                 | Command::Top(_)

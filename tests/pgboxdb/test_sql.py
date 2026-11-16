@@ -11,14 +11,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import pgclient  # noqa: E402
-from lib.harness import PGBoxDB  # noqa: E402
+from lib.harness import Pgboxdb  # noqa: E402
 
 PGBoxDB = None
 
 
 def setUpModule():
     global PGBoxDB
-    PGBoxDB = PGBoxDB("sql").up()
+    PGBoxDB = Pgboxdb("sql").up()
     PGBoxDB.cli("create", "app", check=True)
 
 

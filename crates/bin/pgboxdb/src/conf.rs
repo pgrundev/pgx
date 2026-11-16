@@ -2,6 +2,11 @@
 use crate::config::{Config, Durability};
 use std::path::Path;
 
+/// The generated settings file a new cluster's postgresql.conf includes. A
+/// cluster created before the rename includes another name; `start` keeps
+/// that one (see [`crate::legacy::profile_conf_name`]).
+pub const PROFILE_CONF: &str = "pgboxdb.conf";
+
 /// `postgresql.conf`: a place for the user's own settings, then pgboxdb's.
 pub fn render_postgresql_conf() -> String {
     "# postgresql.conf — managed by pgboxdb.\n\

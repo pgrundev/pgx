@@ -22,7 +22,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import pgclient  # noqa: E402
-from lib.harness import PGBoxDB  # noqa: E402
+from lib.harness import Pgboxdb  # noqa: E402
 
 BATCH = 500
 
@@ -65,7 +65,7 @@ def fill(pgboxdb, db, batches):
 
 def main():
     report = {"clones": [], "refusals": {}, "problems": []}
-    with PGBoxDB("clonecons") as pgboxdb:
+    with Pgboxdb("clonecons") as pgboxdb:
         pgboxdb.up()
         pgboxdb.cli("create", "src", check=True)
         pgboxdb.cli("create", "noise", check=True)

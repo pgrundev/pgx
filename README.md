@@ -1,6 +1,11 @@
 <h1 align="center">PGBoxDB</h1>
 
 <p align="center">
+  Lightweight Postgres-compatible database runtime for AI agents<br>
+  <a href="https://pgboxdb.com">pgboxdb.com</a> · documentation: <a href="https://pgbox.dev/db">pgbox.dev/db</a>
+</p>
+
+<p align="center">
   <strong>Every AI agent gets its own Postgres.</strong><br>
   One runtime. Thousands of Postgres databases.
 </p>
@@ -446,6 +451,11 @@ on the machine, refuses sources that use extensions PGBoxDB does not ship
 Details, limitations and measurements: [`copy.md`](docs/pgboxdb/local-dev/copy.md).
 
 ## Documentation
+
+The documentation site is [pgbox.dev/db](https://pgbox.dev/db); the files below are its source.
+
+Upgrading an installation made before the rename to PGBoxDB: see
+[`local-dev/upgrading.md`](docs/pgboxdb/local-dev/upgrading.md) (`pgboxdb migrate`).
 
 | Document | What's in it |
 |---|---|

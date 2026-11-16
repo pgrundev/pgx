@@ -257,10 +257,9 @@ pub fn run_streaming(
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // reader finished: child closed stderr; collect its status
                 if exited.is_none() {
-                    exited =
-                        Some(child.wait().map_err(|e| {
-                            PgboxdbError::failure(format!("cannot wait for child: {e}"))
-                        })?);
+                    exited = Some(child.wait().map_err(|e| {
+                        PgboxdbError::failure(format!("cannot wait for child: {e}"))
+                    })?);
                 }
                 break;
             }

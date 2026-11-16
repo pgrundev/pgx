@@ -55,6 +55,9 @@ if [ -z "$version" ]; then
 fi
 version="${version#v}"
 install_dir="${PGBOXDB_INSTALL_DIR:-$HOME/.pgboxdb/dist/$version}"
+# A data home migrated by `pgboxdb migrate` carries the previous distributions
+# under dist/<version>: never replace (delete) one.
+[ -f "$install_dir/share/pgx/dist.json" ] && err "$install_dir holds a distribution installed before the rename to PGBoxDB; refusing to replace it (set PGBOXDB_INSTALL_DIR to another directory, or move it aside yourself)"
 
 name="pgboxdb-$version-$os-$arch"
 url="$BASE_URL/v$version/$name.tar.gz"

@@ -1,7 +1,7 @@
 //! Black-box tests for `pgboxdb agent install|uninstall|setup|doctor`. Every run
 //! uses a scratch HOME so nothing can touch the developer's real hook files.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -9,13 +9,13 @@ use std::process::Stdio;
 const MARKER: &str = "pgboxdb agent hook";
 
 struct Lab {
-    p: PGBoxDB,
+    p: Pgboxdb,
     home: PathBuf, // scratch $HOME
     proj: PathBuf,
 }
 
 fn lab(init: bool) -> Lab {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     if init {
         p.init_ok();
         p.start_ok();

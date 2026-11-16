@@ -40,10 +40,11 @@ pub fn port_is_free(port: u16) -> bool {
 pub fn choose_port(requested: Option<u16>) -> Result<u16> {
     if let Some(p) = requested {
         if let Err(why) = port_check(p) {
-            return Err(
-                PgboxdbError::new(ExitCode::Conflict, format!("port {p} is in use ({why})"))
-                    .hint("choose another with `pgboxdb init --port N`, or stop the process using it"),
-            );
+            return Err(PgboxdbError::new(
+                ExitCode::Conflict,
+                format!("port {p} is in use ({why})"),
+            )
+            .hint("choose another with `pgboxdb init --port N`, or stop the process using it"));
         }
         return Ok(p);
     }
@@ -71,6 +72,10 @@ pub fn run(
         None => Durability::Ephemeral,
     };
 
+    if !(home.data.exists() || home.config_file.exists()) {
+        // Never fork an existing installation into a second, empty home.
+        crate::legacy::guard_new_home(&home)?;
+    }
     if home.data.exists() || home.config_file.exists() {
         if !force {
             return Err(PgboxdbError::new(ExitCode::Conflict, format!("PGBoxDB is already initialised at {}", home.root.display()))
@@ -128,7 +133,8 @@ pub fn run(
     };
     std::fs::create_dir_all(&home.root)
         .map_err(|e| PgboxdbError::io("cannot create", &home.root, &e))?;
-    std::fs::create_dir_all(&sock_dir).map_err(|e| PgboxdbError::io("cannot create", &sock_dir, &e))?;
+    std::fs::create_dir_all(&sock_dir)
+        .map_err(|e| PgboxdbError::io("cannot create", &sock_dir, &e))?;
 
     // The cluster: copy to data.tmp, configure, then rename into place.
     let tmp = home.root.join("data.tmp");
@@ -176,7 +182,7 @@ pub fn run(
     };
     let block_clone = fsdetect::supports_block_clone(&tmp);
     write(
-        &tmp.join("pgboxdb.conf"),
+        &tmp.join(conf::PROFILE_CONF),
         &conf::render_pgboxdb_conf(&config, &sock_dir, block_clone),
     )?;
     std::fs::rename(&tmp, &home.data)
@@ -247,7 +253,9 @@ fn set_password(
                 "ALTER ROLE postgres PASSWORD {}",
                 quote_literal(password)
             ))
-            .map_err(|e| PgboxdbError::failure(format!("cannot set the superuser password: {e}")))?;
+            .map_err(|e| {
+                PgboxdbError::failure(format!("cannot set the superuser password: {e}"))
+            })?;
         client.close();
         Ok(())
     })();

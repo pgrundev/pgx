@@ -1,14 +1,14 @@
 //! Black-box tests for the `pgboxdb agent` lifecycle primitives: `up`, `touch`,
 //! `down`, `env`, `ls`. Real runtime, real clones, real expiry.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// A runtime with a `myapp` template holding 20k rows, and an empty project dir.
-fn up_with_source() -> (PGBoxDB, PathBuf) {
-    let p = PGBoxDB::new();
+fn up_with_source() -> (Pgboxdb, PathBuf) {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -24,7 +24,7 @@ fn up_with_source() -> (PGBoxDB, PathBuf) {
 }
 
 /// `pgboxdb --json agent <args>` run from `dir` with extra environment.
-fn agent(p: &PGBoxDB, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> common::Run {
+fn agent(p: &Pgboxdb, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> common::Run {
     p.output_retrying_pub(
         || {
             let mut full = vec!["--json", "agent"];
@@ -46,7 +46,7 @@ fn psql_url(url: &str, sql: &str) -> common::Run {
     common::Run::from(common::output_locked(&mut cmd).expect("spawn psql"))
 }
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),
@@ -56,7 +56,7 @@ fn db_exists(p: &PGBoxDB, name: &str) -> bool {
         == "1"
 }
 
-fn fingerprint(p: &PGBoxDB, db: &str) -> String {
+fn fingerprint(p: &Pgboxdb, db: &str) -> String {
     p.psql(
         db,
         "SELECT count(*), coalesce(sum(id),0), md5(string_agg(title, ',' ORDER BY id)) FROM posts",
@@ -66,7 +66,7 @@ fn fingerprint(p: &PGBoxDB, db: &str) -> String {
     .to_string()
 }
 
-fn agent_ls(p: &PGBoxDB, dir: &Path) -> Vec<serde_json::Value> {
+fn agent_ls(p: &Pgboxdb, dir: &Path) -> Vec<serde_json::Value> {
     agent(p, dir, &[], &["ls"])
         .json()
         .as_array()
@@ -135,7 +135,7 @@ fn up_is_idempotent_per_session_and_isolated_across_sessions() {
 
 #[test]
 fn up_without_source_uses_app_and_creates_it_empty() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let proj = p.home.parent().unwrap().join("proj");

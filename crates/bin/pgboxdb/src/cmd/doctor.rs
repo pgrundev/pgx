@@ -315,8 +315,24 @@ pub fn run(out: &Out) -> Result<ExitCode> {
         checks.push(fail(
             "data_dir",
             format!("not initialised at {}", home.root.display()),
-            "run `pgboxdb init`",
+            crate::legacy::uninitialised_hint(&home).unwrap_or_else(|| "run `pgboxdb init`".into()),
         ));
+    }
+    if initialized {
+        if let Some(old) = crate::legacy::initialised_home() {
+            let canon =
+                |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            if canon(&old.root) != canon(&home.root) {
+                checks.push(warn(
+                    "previous_home",
+                    format!(
+                        "databases from before the rename are still at {} (not used by this installation)",
+                        old.root.display()
+                    ),
+                    "nothing is lost; to use them, set PGBOXDB_HOME to that path (`pgboxdb migrate` moves a home only into a free location)",
+                ));
+            }
+        }
     }
     let config = if home.config_file.exists() {
         match Config::load(&home.config_file) {

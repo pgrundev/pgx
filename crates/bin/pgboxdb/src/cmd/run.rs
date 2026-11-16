@@ -45,6 +45,10 @@ pub fn run(out: &Out) -> Result<ExitCode> {
     let quiet = out.quiet();
 
     let home = Home::resolve();
+    if !home.is_initialized() {
+        // Before the run lock creates the home directory.
+        crate::legacy::guard_new_home(&home)?;
+    }
     let _run_lock = acquire_run_lock(&home)?;
 
     // 1. Initialise a fresh $PGBOXDB_HOME. Reads PGBOXDB_PORT / PGBOXDB_DURABILITY for the
@@ -54,7 +58,9 @@ pub fn run(out: &Out) -> Result<ExitCode> {
         false
     } else {
         out.note("initialising a new PGBoxDB cluster…");
-        let port = std::env::var("PGBOXDB_PORT").ok().and_then(|p| p.parse().ok());
+        let port = std::env::var("PGBOXDB_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
         let durability = std::env::var("PGBOXDB_DURABILITY").ok();
         crate::cmd::init::run(&quiet, port, durability, false)?;
         true

@@ -1,10 +1,10 @@
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn version_prints_engine_and_compat() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.run(&["version"]);
     assert_eq!(r.code, 0, "{}", r.all());
     assert!(r.stdout.starts_with("pgboxdb "), "{}", r.stdout);
@@ -18,7 +18,7 @@ fn version_prints_engine_and_compat() {
 
 #[test]
 fn init_creates_cluster_and_config() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.init();
     assert_eq!(r.code, 0, "{}", r.all());
     assert!(p.home.join("data/PG_VERSION").is_file());
@@ -67,7 +67,7 @@ fn init_creates_cluster_and_config() {
 
 #[test]
 fn init_json_output() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let port = p.port.to_string();
     let j = p.run(&["--json", "init", "--port", &port]).json();
     assert_eq!(j["port"], p.port);
@@ -80,7 +80,7 @@ fn init_json_output() {
 
 #[test]
 fn init_full_durability_writes_fsync_on() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let port = p.port.to_string();
     let r = p.run(&["init", "--port", &port, "--durability", "full"]);
     assert_eq!(r.code, 0, "{}", r.all());
@@ -93,7 +93,7 @@ fn init_full_durability_writes_fsync_on() {
 
 #[test]
 fn init_twice_is_conflict_and_keeps_data() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let before = std::fs::read_to_string(p.home.join("config.json")).unwrap();
     let r = p.init();
@@ -112,7 +112,7 @@ fn init_twice_is_conflict_and_keeps_data() {
 
 #[test]
 fn init_force_recreates() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     std::fs::write(p.home.join("data/marker"), b"old").unwrap();
     let port = p.port.to_string();
@@ -127,7 +127,7 @@ fn init_force_recreates() {
 #[test]
 fn init_refuses_long_socket_path() {
     let long = common::scratch_root().join("x".repeat(95));
-    let p = PGBoxDB::with_home(long);
+    let p = Pgboxdb::with_home(long);
     let r = p.init();
     assert_eq!(r.code, 2, "{}", r.all());
     assert!(
@@ -144,7 +144,7 @@ fn init_refuses_long_socket_path() {
 #[test]
 fn init_with_run_dir_override_accepts_long_home() {
     let long = common::scratch_root().join("y".repeat(95));
-    let p = PGBoxDB::with_home(long);
+    let p = Pgboxdb::with_home(long);
     let run_dir = common::scratch_root().join(format!("rd{}", p.port));
     let port = p.port.to_string();
     let r = common::output_locked(
@@ -162,7 +162,7 @@ fn init_with_run_dir_override_accepts_long_home() {
 fn init_picks_free_port_when_5432_busy() {
     // Simulated: ask for a port that is busy and expect init to refuse it;
     // the automatic choice is exercised by `init_without_port_chooses_a_free_one`.
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let busy = std::net::TcpListener::bind(("127.0.0.1", p.port)).unwrap();
     let r = p.init();
     drop(busy);
@@ -172,7 +172,7 @@ fn init_picks_free_port_when_5432_busy() {
 
 #[test]
 fn init_without_port_chooses_a_free_one() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.run(&["--json", "init"]);
     assert_eq!(r.code, 0, "{}", r.all());
     let port = r.json()["port"].as_u64().unwrap() as u16;
@@ -183,7 +183,7 @@ fn init_without_port_chooses_a_free_one() {
 
 #[test]
 fn start_requires_init() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.run(&["start"]);
     assert_eq!(r.code, 3, "{}", r.all());
     assert!(r.stderr.contains("pgboxdb init"), "{}", r.stderr);
@@ -191,7 +191,7 @@ fn start_requires_init() {
 
 #[test]
 fn incomplete_installation_is_exit_7() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     std::fs::remove_file(p.prefix.join("share")).unwrap();
     std::fs::create_dir_all(p.prefix.join("share/timezone")).unwrap();
     let r = p.run(&["init"]);
@@ -203,7 +203,7 @@ fn incomplete_installation_is_exit_7() {
 
 #[test]
 fn start_stop_roundtrip_select_1() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let r = p.run(&["start"]);
     assert_eq!(r.code, 0, "{}\n{}", r.all(), p.log_tail());
@@ -233,7 +233,7 @@ fn start_stop_roundtrip_select_1() {
 
 #[test]
 fn start_twice_is_noop() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let first = p.engine_pids();
@@ -245,7 +245,7 @@ fn start_twice_is_noop() {
 
 #[test]
 fn stop_when_not_running_is_ok() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let r = p.run(&["stop"]);
     assert_eq!(r.code, 0, "{}", r.all());
@@ -254,7 +254,7 @@ fn stop_when_not_running_is_ok() {
 
 #[test]
 fn status_reports_running_and_stopped() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let j = p.run(&["--json", "status"]).json();
     assert_eq!(j["running"], false);
@@ -279,7 +279,7 @@ fn status_reports_running_and_stopped() {
 
 #[test]
 fn stale_pid_reused_by_other_process() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     // A pid that is alive but is not our engine: this test process.
     let me = std::process::id();
@@ -314,7 +314,7 @@ fn stale_pid_reused_by_other_process() {
 
 #[test]
 fn stale_pid_of_dead_process_is_cleared() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     std::fs::write(
         p.home.join("data/postmaster.pid"),
@@ -332,7 +332,7 @@ fn stale_pid_of_dead_process_is_cleared() {
 
 #[test]
 fn port_conflict_is_exit_4() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let busy = std::net::TcpListener::bind(("127.0.0.1", p.port)).unwrap();
     let r = p.run(&["start"]);
@@ -348,7 +348,7 @@ fn port_conflict_is_exit_4() {
 
 #[test]
 fn concurrent_start_single_server() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let handles: Vec<_> = (0..4)
         .map(|_| {
@@ -378,7 +378,7 @@ fn concurrent_start_single_server() {
 
 #[test]
 fn restart_preserves_data() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(
@@ -406,7 +406,7 @@ fn restart_preserves_data() {
 
 #[test]
 fn stop_leaves_no_orphan_and_force_kills() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let pid = p.engine_pids()[0];
@@ -419,7 +419,7 @@ fn stop_leaves_no_orphan_and_force_kills() {
 #[test]
 fn start_survives_cli_parent_exit_and_terminal_hangup() {
     // The engine must be in its own session: a SIGHUP to the CLI's process group must not reach it.
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let pid = p.engine_pids()[0];
@@ -432,7 +432,7 @@ fn start_survives_cli_parent_exit_and_terminal_hangup() {
 
 #[test]
 fn serve_runs_in_foreground_and_initialises() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     // No init: serve must create the cluster and run the engine in the foreground.
     let mut child = common::spawn_locked(p.cmd(&["serve"]).env("PGBOXDB_PORT", p.port.to_string()))
         .expect("spawn pgboxdb serve");
@@ -448,7 +448,11 @@ fn serve_runs_in_foreground_and_initialises() {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    assert!(ready, "pgboxdb serve did not become ready\n{}", p.log_tail());
+    assert!(
+        ready,
+        "pgboxdb serve did not become ready\n{}",
+        p.log_tail()
+    );
     // The engine is a child of the serve process (foreground), i.e. serve exec'd it.
     assert!(
         p.home.join("data/PG_VERSION").is_file(),
@@ -472,7 +476,7 @@ fn serve_runs_in_foreground_and_initialises() {
 
 #[test]
 fn init_honors_pgboxdb_password_env() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let port = p.port.to_string();
     let r = common::output_locked(
         p.cmd(&["init", "--port", &port])
@@ -482,7 +486,7 @@ fn init_honors_pgboxdb_password_env() {
     assert_eq!(common::Run::from(r).code, 0);
     assert_eq!(p.config()["password"], "supersecret123");
     // too short is rejected
-    let p2 = PGBoxDB::new();
+    let p2 = Pgboxdb::new();
     let port2 = p2.port.to_string();
     let r = common::Run::from(
         common::output_locked(
@@ -500,7 +504,7 @@ fn init_force_refuses_while_recorded_pid_is_alive() {
     // A postmaster.pid naming a live process (here, this test process) must stop
     // `pgboxdb init --force` from deleting the data directory, even though that
     // process is not our engine. Guards against a mis-identified live cluster.
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     std::fs::write(p.home.join("data/marker"), b"keep").unwrap();
     let me = std::process::id();
@@ -549,7 +553,7 @@ fn init_force_refuses_while_recorded_pid_is_alive() {
 #[test]
 fn start_does_not_leak_inherited_fds_into_engine_or_supervisor() {
     use std::os::unix::process::CommandExt;
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let mut fds = [0i32; 2];
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);

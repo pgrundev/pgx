@@ -1,14 +1,14 @@
 {
   "name": "pgboxdb",
   "version": "0.1.3",
-  "description": "PGBoxDB: a local, disposable, PostgreSQL-compatible runtime. `npx pgboxdb` installs the native binary and starts a database.",
+  "description": "PGBoxDB: a lightweight Postgres-compatible database runtime for AI agents. `npx pgboxdb` installs the native binary and starts a local, disposable database.",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pgrundev/pgboxdb.git",
     "directory": "dist/npm"
   },
-  "homepage": "https://github.com/pgrundev/pgboxdb#readme",
+  "homepage": "https://pgboxdb.com",
   "bugs": "https://github.com/pgrundev/pgboxdb/issues",
   "keywords": ["postgres", "postgresql", "database", "pgboxdb", "local", "ephemeral", "branching", "agents", "testing"],
   "bin": {

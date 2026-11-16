@@ -86,6 +86,7 @@ fn hooks_check(host: Host, root: &Path) -> Check {
     let mut partial = Vec::new();
     let mut dups = Vec::new();
     let mut broken = Vec::new();
+    let mut legacy = Vec::new();
     for (scope, path) in install::host_files(host, root) {
         let Some((covered, dup, invalid)) = count_ours(&path) else {
             continue;
@@ -99,6 +100,13 @@ fn hooks_check(host: Host, root: &Path) -> Check {
                 Scope::User => "user",
             }
         );
+        let has_legacy = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|d| install::has_legacy(&d));
+        if has_legacy {
+            legacy.push(label.clone());
+        }
         if invalid {
             broken.push(label);
         } else if dup > 0 {
@@ -114,6 +122,19 @@ fn hooks_check(host: Host, root: &Path) -> Check {
             name,
             format!("not valid JSON: {}", broken.join(", ")),
             "fix the file by hand",
+        );
+    }
+    if !legacy.is_empty() {
+        return warn(
+            name,
+            format!(
+                "hooks from before the rename to PGBoxDB in {} (they do not run pgboxdb)",
+                legacy.join(", ")
+            ),
+            format!(
+                "run `pgboxdb agent install {}` for that scope: it replaces them",
+                host.as_str()
+            ),
         );
     }
     if !dups.is_empty() {

@@ -2,7 +2,7 @@
 //! hooks fired by real `git switch`, a real runtime, real clones. Latencies
 //! printed here are measured, never assumed (run with `--nocapture`).
 mod common;
-use common::{find_psql, PGBoxDB, Run};
+use common::{find_psql, Pgboxdb, Run};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -20,12 +20,12 @@ const AGENT_VARS: [&str; 9] = [
 ];
 
 struct Lab {
-    p: PGBoxDB,
+    p: Pgboxdb,
     root: PathBuf,
 }
 
 fn lab() -> Lab {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let root = p.home.parent().unwrap().join("w");
@@ -302,7 +302,8 @@ fn bcd_branches_get_isolated_databases_switching_reuses_them() {
     let out = l.git(&d, &["switch", "-c", "feature/auth"]);
     let switch_create_ms = t.elapsed().as_millis();
     assert!(
-        out.stderr.contains("✓ PGBoxDB database ready: feature/auth"),
+        out.stderr
+            .contains("✓ PGBoxDB database ready: feature/auth"),
         "{}",
         out.all()
     );
@@ -551,7 +552,11 @@ fn f_failed_sync_keeps_the_previous_snapshot_and_branches() {
     l.git(&d, &["switch", "main"]);
     l.q(&d, "ALTER TABLE t ADD COLUMN y int");
     for fp in ["copy", "validate", "publish", "lock"] {
-        let r = l.pgboxdb_env(&d, &[("PGBOXDB_GIT_FAILPOINT", fp)], &["--json", "git", "sync"]);
+        let r = l.pgboxdb_env(
+            &d,
+            &[("PGBOXDB_GIT_FAILPOINT", fp)],
+            &["--json", "git", "sync"],
+        );
         assert_eq!(r.code, 1, "{fp}: {}", r.all());
         let v = r.json();
         assert_eq!(v["status"], "failed", "{v}");
@@ -1041,7 +1046,10 @@ fn i_existing_hooks_keep_working_and_uninstall_removes_only_ours() {
     }
     assert!(!d2.join(".husky/post-merge").exists());
     let detail = v["hooks"][0]["detail"].as_str().unwrap();
-    assert!(detail.contains("pgboxdb git hook post-checkout"), "{detail}");
+    assert!(
+        detail.contains("pgboxdb git hook post-checkout"),
+        "{detail}"
+    );
     assert_eq!(
         std::fs::read_to_string(d2.join(".husky/post-checkout")).unwrap(),
         "#!/bin/sh\necho team\n"
@@ -1112,7 +1120,12 @@ fn j_prune_finds_only_abandoned_git_databases() {
     let p = l.json(&d, &["git", "prune", "--grace", "1s", "--apply"]);
     assert_eq!(p["applied"], true);
     assert!(!l.db_exists(&gone) && !l.db_exists(&wtdb));
-    for keep in [&kept, &main_db, &agent_db, &"pgboxdb_app_manual".to_string()] {
+    for keep in [
+        &kept,
+        &main_db,
+        &agent_db,
+        &"pgboxdb_app_manual".to_string(),
+    ] {
         assert!(l.db_exists(keep), "{keep} must survive");
     }
     // Retired snapshots are pruned, the current and previous kept.
@@ -1423,7 +1436,10 @@ fn l_environment_reaches_bash_zsh_fish_and_exec() {
         assert_eq!(l.pgboxdb(&d, &["git", "install-shell", "bash"]).code, 0);
     }
     let rc = std::fs::read_to_string(home.join(".bashrc")).unwrap();
-    assert_eq!(rc.matches(">>> pgboxdb git shell integration >>>").count(), 1);
+    assert_eq!(
+        rc.matches(">>> pgboxdb git shell integration >>>").count(),
+        1
+    );
     assert!(!rc.contains(&l.p.password()) && !rc.contains("postgres://"));
     assert_eq!(l.pgboxdb(&d, &["git", "uninstall", "--shell"]).code, 0);
     assert!(!std::fs::read_to_string(home.join(".bashrc"))
@@ -1524,7 +1540,8 @@ fn m_hostile_names_collisions_and_inherited_urls() {
     let r = l.pgboxdb_env(&broken, &[], &["git", "env", "--shell", "bash", "--hook"]);
     assert_eq!(r.code, 0);
     assert!(
-        r.stdout.contains("pgboxdb_isolation_failed") && r.stdout.contains("PGBOXDB_ISOLATION='failed'"),
+        r.stdout.contains("pgboxdb_isolation_failed")
+            && r.stdout.contains("PGBOXDB_ISOLATION='failed'"),
         "{}",
         r.all()
     );
@@ -1555,7 +1572,11 @@ fn m_hostile_names_collisions_and_inherited_urls() {
         "no credentials echoed back: {}",
         r.all()
     );
-    std::fs::write(broken.join(".pgboxdb.toml"), "[git]\nmain_branch = \"-x ..\"\n").unwrap();
+    std::fs::write(
+        broken.join(".pgboxdb.toml"),
+        "[git]\nmain_branch = \"-x ..\"\n",
+    )
+    .unwrap();
     assert_eq!(l.pgboxdb(&broken, &["git", "status"]).code, 2);
     std::fs::write(
         broken.join(".pgboxdb.toml"),
@@ -2067,7 +2088,12 @@ fn o3_automatic_snapshots_never_block_or_capture_an_unsettled_main() {
     if cfg!(feature = "failpoints") {
         // An explicit sync stuck mid-copy holds only the sync lock: checkouts proceed.
         l.git(&d, &["switch", "main"]);
-        let mut hung = spawn_quiet(&l, &d, &[("PGBOXDB_GIT_FAILPOINT", "hang")], &["git", "sync"]);
+        let mut hung = spawn_quiet(
+            &l,
+            &d,
+            &[("PGBOXDB_GIT_FAILPOINT", "hang")],
+            &["git", "sync"],
+        );
         assert!(
             wait_for_db(&l, |n| n.contains("_stg_"), 30),
             "staging never appeared"
@@ -2194,7 +2220,8 @@ fn o5_wrappers_refuse_switch_then_work_for_every_host() {
     assert_eq!(l.json(&d, &["git", "status"])["main_branch"], "main");
     l.git(&d, &["switch", "main"]);
     assert_eq!(
-        l.pgboxdb(&d, &["git", "reset", "--from-main", "--force"]).code,
+        l.pgboxdb(&d, &["git", "reset", "--from-main", "--force"])
+            .code,
         2,
         "main stays protected"
     );

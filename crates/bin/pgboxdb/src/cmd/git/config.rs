@@ -148,7 +148,9 @@ fn parse_array(k: &str, v: &str) -> Result<Vec<String>> {
     let inner = v
         .strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))
-        .ok_or_else(|| PgboxdbError::usage(format!("{FILE}: {k} must be an array like [\"main\"]")))?;
+        .ok_or_else(|| {
+            PgboxdbError::usage(format!("{FILE}: {k} must be an array like [\"main\"]"))
+        })?;
     let mut items = Vec::new();
     for part in inner.split(',') {
         let p = part.trim();
@@ -207,8 +209,9 @@ pub fn parse(text: &str) -> Result<GitConfig> {
             }
             ("git", "source") => {
                 let s = string(k, v)?;
-                crate::names::validate(&s)
-                    .map_err(|e| PgboxdbError::usage(format!("{FILE}: [git] source: {}", e.message)))?;
+                crate::names::validate(&s).map_err(|e| {
+                    PgboxdbError::usage(format!("{FILE}: [git] source: {}", e.message))
+                })?;
                 cfg.source = Some(s);
             }
             ("git", "auto_branch") => cfg.auto_branch = parse_bool(k, v)?,

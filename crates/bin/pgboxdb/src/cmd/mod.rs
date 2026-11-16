@@ -4,6 +4,7 @@ pub mod db;
 pub mod doctor;
 pub mod git;
 pub mod init;
+pub mod migrate;
 pub mod run;
 pub mod start;
 pub mod status;
@@ -68,7 +69,8 @@ impl Ctx {
 
     pub fn require_running(&self) -> Result<u32> {
         self.running_pid().ok_or_else(|| {
-            PgboxdbError::new(ExitCode::NotReady, "PGBoxDB is not running").hint("run `pgboxdb start`")
+            PgboxdbError::new(ExitCode::NotReady, "PGBoxDB is not running")
+                .hint("run `pgboxdb start`")
         })
     }
 

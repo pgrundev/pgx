@@ -140,9 +140,9 @@ pub fn discover(dir: &Path) -> Result<Option<Repo>> {
     // Stable identities, written by PGBoxDB Git into the Git directory (see
     // `core::ensure_identity`), survive moving the repository and
     // `git worktree move`; without them, the canonical paths.
-    let repo_id = read_id(&common_dir.join(REPO_ID_FILE))
+    let repo_id = read_id_in(&common_dir, REPO_ID_FILE, crate::legacy::REPO_ID_FILE)
         .unwrap_or_else(|| hex16(fnv1a64(common_dir.to_string_lossy().as_bytes())));
-    let worktree_id = read_id(&git_dir.join(WORKTREE_ID_FILE))
+    let worktree_id = read_id_in(&git_dir, WORKTREE_ID_FILE, crate::legacy::WORKTREE_ID_FILE)
         .unwrap_or_else(|| hex16(fnv1a64(toplevel.to_string_lossy().as_bytes())));
     Ok(Some(Repo {
         repo_id,
@@ -163,6 +163,14 @@ pub fn read_id(p: &Path) -> Option<String> {
     let s = std::fs::read_to_string(p).ok()?;
     let s = s.trim();
     (s.len() == 16 && s.bytes().all(|b| b.is_ascii_hexdigit())).then(|| s.to_ascii_lowercase())
+}
+
+/// An id from `dir/name`, falling back to the file of the same role written
+/// before the rename. `core::ensure_identity` then writes `name`, so the
+/// repository keeps its identity (and its databases) without touching the
+/// old file.
+pub fn read_id_in(dir: &Path, name: &str, legacy_name: &str) -> Option<String> {
+    read_id(&dir.join(name)).or_else(|| read_id(&dir.join(legacy_name)))
 }
 
 fn read_head(dir: &Path) -> Result<Head> {

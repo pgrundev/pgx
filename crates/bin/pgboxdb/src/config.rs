@@ -57,8 +57,9 @@ impl Config {
 
     pub fn from_json(text: &str) -> Result<Config> {
         let bad = |m: String| {
-            PgboxdbError::new(ExitCode::Corrupt, format!("config.json: {m}"))
-                .hint("re-run `pgboxdb init --force` to recreate it (this deletes the data directory)")
+            PgboxdbError::new(ExitCode::Corrupt, format!("config.json: {m}")).hint(
+                "re-run `pgboxdb init --force` to recreate it (this deletes the data directory)",
+            )
         };
         let v: serde_json::Value = serde_json::from_str(text).map_err(|e| bad(e.to_string()))?;
         let port = v
@@ -130,7 +131,8 @@ impl Config {
             std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
                 .map_err(|e| PgboxdbError::io("cannot chmod", &tmp, &e))?;
         }
-        std::fs::rename(&tmp, path).map_err(|e| PgboxdbError::io("cannot rename into place", path, &e))
+        std::fs::rename(&tmp, path)
+            .map_err(|e| PgboxdbError::io("cannot rename into place", path, &e))
     }
 
     pub fn load(path: &Path) -> Result<Config> {

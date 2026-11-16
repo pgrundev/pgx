@@ -2,12 +2,12 @@
 //! database for one agent, built on the clone path. Real runtime, real TTL
 //! expiry, real connections through the printed URL.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-fn up_with_source() -> PGBoxDB {
-    let p = PGBoxDB::new();
+fn up_with_source() -> Pgboxdb {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -20,7 +20,7 @@ fn up_with_source() -> PGBoxDB {
     p
 }
 
-fn base_dirs(p: &PGBoxDB) -> Vec<String> {
+fn base_dirs(p: &Pgboxdb) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(p.home.join("data/base"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -29,7 +29,7 @@ fn base_dirs(p: &PGBoxDB) -> Vec<String> {
     v
 }
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),
@@ -39,7 +39,7 @@ fn db_exists(p: &PGBoxDB, name: &str) -> bool {
         == "1"
 }
 
-fn ls_entry(p: &PGBoxDB, name: &str) -> serde_json::Value {
+fn ls_entry(p: &Pgboxdb, name: &str) -> serde_json::Value {
     let ls = p.run(&["--json", "ls"]).json();
     ls.as_array()
         .unwrap()
@@ -298,7 +298,7 @@ fn branch_expires_on_its_own_and_the_source_survives() {
 
 #[test]
 fn branch_needs_a_running_runtime_and_help_mentions_it() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let h = p.run(&["help"]);
     assert!(
         h.stdout.contains("pgboxdb branch <source> <name>"),

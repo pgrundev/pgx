@@ -103,7 +103,19 @@ pub fn load_config_file(repo: &Repo) -> Result<(GitConfig, Option<PathBuf>)> {
                 .map_err(|e| PgboxdbError::usage(format!("{}: {}", f.display(), e.message)))?;
             Ok((cfg, Some(f)))
         }
-        None => Ok((GitConfig::default(), None)),
+        None => {
+            let mut dirs = vec![repo.toplevel.clone()];
+            if let Some((main_wt, _)) = repo.worktrees().into_iter().next() {
+                dirs.push(main_wt);
+            }
+            if let Some(d) = dirs
+                .iter()
+                .find(|d| crate::legacy::only_legacy_project_file(d))
+            {
+                return Err(crate::legacy::project_file_error(d));
+            }
+            Ok((GitConfig::default(), None))
+        }
     }
 }
 
@@ -330,7 +342,7 @@ pub enum MainSource {
     /// An empty database.
     Empty,
     /// Clone of an existing PGBoxDB database (a template, `app`, …).
-    PGBoxDB(DbName),
+    Pgboxdb(DbName),
     /// Import from an external PostgreSQL URL (schema-only unless `with_data`).
     Url { url: String, schema_only: bool },
 }
@@ -453,7 +465,7 @@ pub fn ensure_main(
                 t0.elapsed().as_secs_f64() * 1000.0,
             )
         }
-        MainSource::PGBoxDB(src) => {
+        MainSource::Pgboxdb(src) => {
             if !db::exists(ctx, client, src)? {
                 return Err(PgboxdbError::new(ExitCode::NotFound, format!("source database {src} does not exist"))
                     .hint(format!("create it (`pgboxdb create {src}`), import it (`pgboxdb copy --from <url> --to {src} --schema-only`), or pass --source <postgres-url>")));
@@ -497,7 +509,7 @@ pub fn ensure_main(
         .ok_or_else(|| PgboxdbError::failure(format!("{target} vanished after it was created")))?;
     let src_label = match source {
         MainSource::Empty => "empty".to_string(),
-        MainSource::PGBoxDB(s) => s.as_str().to_string(),
+        MainSource::Pgboxdb(s) => s.as_str().to_string(),
         MainSource::Url { .. } => "postgres import".to_string(),
     };
     st.main = Some(main_entry(st, target.as_str(), oid, &src_label, method, ms));
@@ -538,7 +550,7 @@ fn repair_source(client: &mut Client, st: &RepoState) -> Result<MainSource> {
         if live_oid(client, &m.database)?.is_none() {
             if let Some(s) = st.current() {
                 if live_oid(client, &s.database)? == Some(s.oid) {
-                    return Ok(MainSource::PGBoxDB(names::validate(&s.database)?));
+                    return Ok(MainSource::Pgboxdb(names::validate(&s.database)?));
                 }
             }
         }
@@ -1463,6 +1475,8 @@ pub fn ensure_identity(home: &Path, repo: &mut Repo) -> Result<()> {
     };
     let rid_file = repo.common_dir.join(REPO_ID_FILE);
     match read_id(&rid_file) {
+        // Also the adoption path: `repo.repo_id` may come from the id file
+        // written before the rename (see `repo::read_id_in`).
         None => write(&rid_file, &repo.repo_id)?,
         Some(id) => {
             if let Ok(Some(st)) = state::load(home, &id) {
@@ -1471,7 +1485,9 @@ pub fn ensure_identity(home: &Path, repo: &mut Repo) -> Result<()> {
                     && std::fs::canonicalize(&recorded).unwrap_or(recorded.clone())
                         != repo.common_dir;
                 if elsewhere
-                    && read_id(&recorded.join(REPO_ID_FILE)).as_deref() == Some(id.as_str())
+                    && super::repo::read_id_in(&recorded, REPO_ID_FILE, crate::legacy::REPO_ID_FILE)
+                        .as_deref()
+                        == Some(id.as_str())
                 {
                     // Both copies exist: this one is the copy.
                     use crate::cmd::agent::identity::{fnv1a64, hex16};
@@ -1503,8 +1519,11 @@ pub fn runtime(out: &Out, init_if_needed: bool) -> Result<Ctx> {
             )
             .hint("run `pgboxdb git init` (or `pgboxdb run`) once"));
         }
+        crate::legacy::guard_new_home(&home)?;
         out.note("initialising a new PGBoxDB cluster…");
-        let port = std::env::var("PGBOXDB_PORT").ok().and_then(|p| p.parse().ok());
+        let port = std::env::var("PGBOXDB_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok());
         let durability = std::env::var("PGBOXDB_DURABILITY").ok();
         crate::cmd::init::run(&out.quiet(), port, durability, false)?;
     }

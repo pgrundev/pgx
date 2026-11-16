@@ -1,14 +1,14 @@
 //! Black-box tests for `pgboxdb agent hook`: the one entry point Claude Code,
 //! Cursor and Codex call. Synthetic payloads in the hosts' exact shapes.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-fn up_with_source() -> (PGBoxDB, PathBuf) {
-    let p = PGBoxDB::new();
+fn up_with_source() -> (Pgboxdb, PathBuf) {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -25,7 +25,7 @@ fn up_with_source() -> (PGBoxDB, PathBuf) {
 
 /// Run `pgboxdb agent hook [args]` from the HOME dir (not the project: the payload's
 /// cwd must be what locates the project) with `payload` on stdin.
-fn hook(p: &PGBoxDB, env: &[(&str, &str)], args: &[&str], payload: &str) -> common::Run {
+fn hook(p: &Pgboxdb, env: &[(&str, &str)], args: &[&str], payload: &str) -> common::Run {
     let mut full = vec!["agent", "hook"];
     full.extend_from_slice(args);
     let mut c = p.cmd(&full);
@@ -92,7 +92,7 @@ fn codex(event: &str, sid: &str, cwd: &Path, extra: Value) -> String {
     v.to_string()
 }
 
-fn db_exists(p: &PGBoxDB, name: &str) -> bool {
+fn db_exists(p: &Pgboxdb, name: &str) -> bool {
     p.psql(
         "postgres",
         &format!("SELECT count(*) FROM pg_database WHERE datname='{name}'"),
@@ -102,7 +102,7 @@ fn db_exists(p: &PGBoxDB, name: &str) -> bool {
         == "1"
 }
 
-fn agent_ls(p: &PGBoxDB) -> Vec<Value> {
+fn agent_ls(p: &Pgboxdb) -> Vec<Value> {
     p.run(&["--json", "agent", "ls"])
         .json()
         .as_array()
@@ -110,7 +110,7 @@ fn agent_ls(p: &PGBoxDB) -> Vec<Value> {
         .clone()
 }
 
-fn env_file(p: &PGBoxDB, tag: &str) -> PathBuf {
+fn env_file(p: &Pgboxdb, tag: &str) -> PathBuf {
     let d = p.home.parent().unwrap().join("session-env");
     std::fs::create_dir_all(&d).unwrap();
     d.join(format!("{tag}.sh"))
@@ -346,7 +346,12 @@ fn cursor_same_conversation_delivered_twice_makes_one_branch() {
     for k in kids {
         let r = common::Run::from(k.wait_with_output().unwrap());
         assert_eq!(r.code, 0, "{}", r.all());
-        branches.insert(r.json()["env"]["PGBOXDB_BRANCH"].as_str().unwrap().to_string());
+        branches.insert(
+            r.json()["env"]["PGBOXDB_BRANCH"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
     }
     assert_eq!(branches.len(), 1, "{branches:?}");
     assert_eq!(agent_ls(&p).len(), 1);
@@ -498,7 +503,7 @@ fn missing_source_with_pgboxdb_toml_fails_closed() {
 
 #[test]
 fn uninitialised_pgboxdb_with_pgboxdb_toml_fails_closed_and_without_it_only_warns() {
-    let p = PGBoxDB::new(); // never initialised
+    let p = Pgboxdb::new(); // never initialised
     let proj = p.home.parent().unwrap().join("proj");
     std::fs::create_dir_all(&proj).unwrap();
     let ef = env_file(&p, "e");

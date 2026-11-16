@@ -6,7 +6,7 @@
 #                    [--pg-bindir DIR] [--staged-share DIR]
 #
 #   --engine        the built server binary   (default: target/release/postgres)
-#   --pgboxdb           the built CLI binary      (default: target/release/pgboxdb)
+#   --pgboxdb       the built CLI binary      (default: target/release/pgboxdb)
 #   --pg-bindir     PostgreSQL 18 bin dir with initdb and pg_config; its share
 #                   dir supplies timezone, timezonesets and tsearch_data and
 #                   initdb produces share/pgboxdb/base-cluster (default: PATH)

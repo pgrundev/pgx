@@ -827,7 +827,10 @@ pub fn render(f: &mut Frame, app: &App, wall: u64) {
     let th = Theme { color: app.color };
     let w = area.width as usize;
     if area.width < 20 || area.height < 4 {
-        f.render_widget(Paragraph::new(clip("pgboxdb top: terminal too small", w)), area);
+        f.render_widget(
+            Paragraph::new(clip("pgboxdb top: terminal too small", w)),
+            area,
+        );
         return;
     }
     let now = display_now(app, wall);

@@ -53,7 +53,10 @@ impl Install {
         })?;
         let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
         let bindir = exe.parent().ok_or_else(|| {
-            PgboxdbError::new(ExitCode::Corrupt, "pgboxdb executable has no parent directory")
+            PgboxdbError::new(
+                ExitCode::Corrupt,
+                "pgboxdb executable has no parent directory",
+            )
         })?;
         let prefix = bindir.parent().ok_or_else(|| {
             PgboxdbError::new(
@@ -192,8 +195,14 @@ mod tests {
         assert_eq!(h.root, Path::new("/Users/someone/.pgboxdb"));
         assert_eq!(h.data, Path::new("/Users/someone/.pgboxdb/data"));
         assert_eq!(h.run, Path::new("/Users/someone/.pgboxdb/run"));
-        assert_eq!(h.log_file, Path::new("/Users/someone/.pgboxdb/log/pgboxdb.log"));
-        assert_eq!(h.config_file, Path::new("/Users/someone/.pgboxdb/config.json"));
+        assert_eq!(
+            h.log_file,
+            Path::new("/Users/someone/.pgboxdb/log/pgboxdb.log")
+        );
+        assert_eq!(
+            h.config_file,
+            Path::new("/Users/someone/.pgboxdb/config.json")
+        );
     }
 
     #[test]
@@ -212,7 +221,10 @@ mod tests {
             i.base_cluster,
             Path::new("/opt/pgboxdb dist/share/pgboxdb/base-cluster")
         );
-        assert_eq!(i.dist_json, Path::new("/opt/pgboxdb dist/share/pgboxdb/dist.json"));
+        assert_eq!(
+            i.dist_json,
+            Path::new("/opt/pgboxdb dist/share/pgboxdb/dist.json")
+        );
     }
 
     #[test]
@@ -256,7 +268,11 @@ mod tests {
         }
         std::fs::write(tmp.join("bin/postgres"), b"").unwrap();
         std::fs::write(tmp.join("share/pgboxdb/base-cluster/PG_VERSION"), b"18\n").unwrap();
-        std::fs::write(tmp.join("share/pgboxdb/base-cluster/global/pg_control"), b"").unwrap();
+        std::fs::write(
+            tmp.join("share/pgboxdb/base-cluster/global/pg_control"),
+            b"",
+        )
+        .unwrap();
         std::fs::write(tmp.join("share/pgboxdb/dist.json"), br#"{"pgboxdb_version":"0.1.0","engine_commit":"abc","postgres_compat":"18.6","initdb_version":"18.6","os":"darwin","arch":"arm64","built_at":"now"}"#).unwrap();
         let i = Install::from_prefix(&tmp);
         assert!(i.verify().is_empty());

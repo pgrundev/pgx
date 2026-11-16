@@ -127,6 +127,13 @@ the PostgreSQL client tools `pgboxdb copy` would use, and orphan `base/<oid>`
 directories (read-only; never deletes). `pgboxdb version`
 reports the engine commit and PostgreSQL compatibility. `pgboxdb help`.
 
+`pgboxdb migrate [--apply] [--rollback]` adopts an installation made before the
+rename to PGBoxDB: the data home, the project file and the Git identity files.
+It is a dry run unless `--apply`, moves the home with one rename, copies files
+under their new names and deletes nothing; `--rollback --apply` moves the home
+back. Exit `4` when a step is blocked (nothing is applied then). See
+[upgrading.md](upgrading.md).
+
 ## Database names
 
 1–63 bytes, `^[A-Za-z_][A-Za-z0-9_-]*$`, always sent quoted; `postgres`,
@@ -144,3 +151,8 @@ database in use · `7` corrupted or incomplete installation.
 `PGBOXDB_PORT` / `PGBOXDB_DURABILITY` / `PGBOXDB_LISTEN` / `PGBOXDB_PASSWORD` (read by `init` and
 `serve`, used by the Docker entrypoint), `PGBOXDB_PG_BINDIR` (where `pgboxdb copy` finds
 `pg_dump` and `pg_restore`).
+
+PGBoxDB reads only `PGBOXDB_*` variables. With no `PGBOXDB_HOME` set and an
+initialised data home from before the rename present, commands that would
+create a new home refuse with exit `4` and point at `pgboxdb migrate`
+([upgrading.md](upgrading.md)); setting `PGBOXDB_HOME` is the explicit choice.

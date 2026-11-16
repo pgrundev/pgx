@@ -1355,7 +1355,8 @@ mod tests {
 
     #[test]
     fn markers_roundtrip_and_staging_status() {
-        let root = std::env::temp_dir().join(format!("pgboxdb-copy-markers-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("pgboxdb-copy-markers-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let home = Home::at(root.clone());
         assert!(markers(&home).is_empty());
@@ -1429,7 +1430,10 @@ mod tests {
             &["pg_dump: error: aborting because of server version mismatch".to_string()],
             "exit status: 1",
         );
-        assert!(e.hint.as_deref().unwrap().contains("PGBOXDB_PG_BINDIR"), "{e}");
+        assert!(
+            e.hint.as_deref().unwrap().contains("PGBOXDB_PG_BINDIR"),
+            "{e}"
+        );
     }
 
     #[test]

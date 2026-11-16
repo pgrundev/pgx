@@ -28,7 +28,9 @@ pub struct Source {
 pub fn parse(raw: &str) -> Result<Source> {
     let s = raw.trim();
     if s.is_empty() {
-        return Err(PgboxdbError::usage("--from needs a PostgreSQL connection URL"));
+        return Err(PgboxdbError::usage(
+            "--from needs a PostgreSQL connection URL",
+        ));
     }
     if let Some(rest) = s
         .strip_prefix("postgres://")

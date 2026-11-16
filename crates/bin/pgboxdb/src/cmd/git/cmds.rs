@@ -107,9 +107,9 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
             url: s.clone(),
             schema_only: !o.with_data,
         },
-        Some(s) => MainSource::PGBoxDB(crate::names::validate_user_target(s)?),
+        Some(s) => MainSource::Pgboxdb(crate::names::validate_user_target(s)?),
         None => match cfg0.source.clone().or(agent_source) {
-            Some(s) => MainSource::PGBoxDB(crate::names::validate(&s)?),
+            Some(s) => MainSource::Pgboxdb(crate::names::validate(&s)?),
             None => MainSource::Empty,
         },
     };
@@ -147,7 +147,7 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
         .clone()
         .unwrap_or_else(|| repo.toplevel.join(config::FILE));
     let committed_source = match &source {
-        MainSource::PGBoxDB(s) => Some(s.as_str().to_string()),
+        MainSource::Pgboxdb(s) => Some(s.as_str().to_string()),
         _ => None,
     };
     let old = std::fs::read_to_string(&toml_path).unwrap_or_default();
@@ -157,7 +157,9 @@ fn init(out: &Out, cwd: &Path, o: InitOpts) -> Result<ExitCode> {
             t.push('\n');
         }
         if t.is_empty() {
-            t.push_str("# .pgboxdb.toml — PGBoxDB configuration for this project (safe to commit).\n");
+            t.push_str(
+                "# .pgboxdb.toml — PGBoxDB configuration for this project (safe to commit).\n",
+            );
         }
         t.push_str(&config::render_block(
             &main_branch,
@@ -1327,7 +1329,11 @@ fn doctor(out: &Out, cwd: &Path) -> Result<ExitCode> {
     let cfg = match core::load_config(&repo) {
         Ok((c, f)) => {
             match (&f, c.is_on()) {
-                (None, _) => add("config", "fail", "no .pgboxdb.toml (run `pgboxdb git init`)".into()),
+                (None, _) => add(
+                    "config",
+                    "fail",
+                    "no .pgboxdb.toml (run `pgboxdb git init`)".into(),
+                ),
                 (Some(f), false) => add(
                     "config",
                     "fail",
@@ -1479,7 +1485,10 @@ fn doctor(out: &Out, cwd: &Path) -> Result<ExitCode> {
             Some(Some(_)) => add(
                 "snapshot",
                 "fail",
-                format!("{} was replaced outside PGBoxDB Git (OID changed)", s.database),
+                format!(
+                    "{} was replaced outside PGBoxDB Git (OID changed)",
+                    s.database
+                ),
             ),
             Some(None) => add(
                 "snapshot",
@@ -1688,8 +1697,9 @@ fn uninstall(out: &Out, cwd: &Path, shell: bool) -> Result<ExitCode> {
         for sh in ["zsh", "bash", "fish"] {
             let p = env::rc_file(sh)?;
             if let Ok(t) = std::fs::read_to_string(&p) {
-                if let Some(rest) = env::strip_block(&t, env::RC_BEGIN, env::RC_END) {
-                    std::fs::write(&p, rest).map_err(|e| PgboxdbError::io("cannot write", &p, &e))?;
+                if let Some(rest) = env::strip_rc_blocks(&t) {
+                    std::fs::write(&p, rest)
+                        .map_err(|e| PgboxdbError::io("cannot write", &p, &e))?;
                     shells.push(p.display().to_string());
                 }
             }
@@ -1722,7 +1732,7 @@ fn install_shell(out: &Out, shell: Option<String>) -> Result<ExitCode> {
     let p = env::rc_file(&sh)?;
     let old = std::fs::read_to_string(&p).unwrap_or_default();
     let block = env::rc_block(&sh);
-    let base = env::strip_block(&old, env::RC_BEGIN, env::RC_END).unwrap_or_else(|| old.clone());
+    let base = env::strip_rc_blocks(&old).unwrap_or_else(|| old.clone());
     let mut new = base.clone();
     if !new.is_empty() && !new.ends_with('\n') {
         new.push('\n');

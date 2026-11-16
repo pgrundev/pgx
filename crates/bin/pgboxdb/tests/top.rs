@@ -4,7 +4,7 @@
 //! task phases (`pgboxdb agent activity`), identity collisions, stale metadata,
 //! runtime restarts, and the read-only guarantee.
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -22,7 +22,7 @@ const AGENTS: [&str; 5] = [
 ];
 
 /// `pgboxdb --json top --snapshot`: exactly one JSON object, no escape bytes.
-fn snapshot(p: &PGBoxDB) -> Value {
+fn snapshot(p: &Pgboxdb) -> Value {
     let r = p.run(&["--json", "top", "--snapshot"]);
     assert!(!r.stdout.contains('\x1b'), "ANSI in JSON: {}", r.all());
     assert_eq!(r.stdout.trim().lines().count(), 1, "one line: {}", r.all());
@@ -43,7 +43,7 @@ fn db<'a>(v: &'a Value, name: &str) -> Option<&'a Value> {
         .find(|d| d["name"] == name)
 }
 
-fn wait_for(p: &PGBoxDB, what: &str, secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
+fn wait_for(p: &Pgboxdb, what: &str, secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
         let v = snapshot(p);
@@ -58,7 +58,7 @@ fn wait_for(p: &PGBoxDB, what: &str, secs: u64, ok: impl Fn(&Value) -> bool) -> 
     }
 }
 
-fn project(p: &PGBoxDB, name: &str, source: &str) -> PathBuf {
+fn project(p: &Pgboxdb, name: &str, source: &str) -> PathBuf {
     let proj = p.home.parent().unwrap().join(name);
     std::fs::create_dir_all(&proj).unwrap();
     std::fs::write(
@@ -84,7 +84,7 @@ fn payload(event: &str, sid: &str, cwd: &Path, extra: Value) -> String {
 }
 
 /// A Claude Code hook delivery (`pgboxdb agent hook` with the payload on stdin).
-fn hook(p: &PGBoxDB, proj: &Path, body: &str) -> common::Run {
+fn hook(p: &Pgboxdb, proj: &Path, body: &str) -> common::Run {
     let mut c = p.cmd(&["agent", "hook"]);
     c.current_dir(proj)
         .env("CLAUDE_PROJECT_DIR", proj)
@@ -102,7 +102,7 @@ fn hook(p: &PGBoxDB, proj: &Path, body: &str) -> common::Run {
     common::Run::from(child.wait_with_output().unwrap())
 }
 
-fn session_start(p: &PGBoxDB, proj: &Path, sid: &str) {
+fn session_start(p: &Pgboxdb, proj: &Path, sid: &str) {
     let r = hook(
         p,
         proj,
@@ -111,7 +111,7 @@ fn session_start(p: &PGBoxDB, proj: &Path, sid: &str) {
     assert_eq!(r.code, 0, "{}", r.all());
 }
 
-fn subagent_start(p: &PGBoxDB, proj: &Path, sid: &str, agent: &str) {
+fn subagent_start(p: &Pgboxdb, proj: &Path, sid: &str, agent: &str) {
     let r = hook(
         p,
         proj,
@@ -125,7 +125,7 @@ fn subagent_start(p: &PGBoxDB, proj: &Path, sid: &str, agent: &str) {
     assert_eq!(r.code, 0, "{}", r.all());
 }
 
-fn subagent_stop(p: &PGBoxDB, proj: &Path, sid: &str, agent: &str) {
+fn subagent_stop(p: &Pgboxdb, proj: &Path, sid: &str, agent: &str) {
     let r = hook(
         p,
         proj,
@@ -139,7 +139,13 @@ fn subagent_stop(p: &PGBoxDB, proj: &Path, sid: &str, agent: &str) {
     assert_eq!(r.code, 0, "{}", r.all());
 }
 
-fn activity(p: &PGBoxDB, proj: &Path, sid: &str, agent: Option<&str>, args: &[&str]) -> common::Run {
+fn activity(
+    p: &Pgboxdb,
+    proj: &Path,
+    sid: &str,
+    agent: Option<&str>,
+    args: &[&str],
+) -> common::Run {
     let mut a = vec!["agent", "activity", "--host", "claude", "--id", sid];
     if let Some(ag) = agent {
         a.extend(["--agent", ag]);
@@ -151,7 +157,7 @@ fn activity(p: &PGBoxDB, proj: &Path, sid: &str, agent: Option<&str>, args: &[&s
 }
 
 /// A psql session that holds a connection to `db` for `secs`.
-fn hold(p: &PGBoxDB, db: &str, secs: u32) -> Child {
+fn hold(p: &Pgboxdb, db: &str, secs: u32) -> Child {
     let mut c = Command::new(common::find_psql());
     c.args([
         "-X",
@@ -194,8 +200,8 @@ fn tree_bytes(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 }
 
 /// A running PGBoxDB with a source `myapp` (one seeded table) and a project.
-fn lab() -> (PGBoxDB, PathBuf) {
-    let p = PGBoxDB::new();
+fn lab() -> (Pgboxdb, PathBuf) {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     assert_eq!(p.run(&["create", "myapp"]).code, 0);
@@ -207,7 +213,7 @@ fn lab() -> (PGBoxDB, PathBuf) {
     (p, proj)
 }
 
-fn five_agents(p: &PGBoxDB, proj: &Path) {
+fn five_agents(p: &Pgboxdb, proj: &Path) {
     session_start(p, proj, SID);
     for a in AGENTS {
         subagent_start(p, proj, SID, a);
@@ -230,7 +236,7 @@ fn by_agent(v: &Value, agent: &str) -> Value {
 
 #[test]
 fn snapshot_reports_a_fresh_runtime_without_secrets() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let v = snapshot(&p);
@@ -282,7 +288,7 @@ fn snapshot_reports_a_fresh_runtime_without_secrets() {
 
 #[test]
 fn not_initialised_and_stopped_runtimes_are_reported_not_created() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("never-created");
     let mut c = p.cmd(&["--json", "top", "--snapshot"]);
     c.env("PGBOXDB_HOME", &home);
@@ -314,7 +320,7 @@ fn not_initialised_and_stopped_runtimes_are_reported_not_created() {
 
 #[test]
 fn cli_contract_json_needs_snapshot_and_non_tty_explains() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.run(&["--json", "top"]);
     assert_eq!(r.code, 2, "{}", r.all());
     assert_eq!(r.json()["error"]["code"], "usage");
@@ -359,7 +365,7 @@ fn cli_contract_json_needs_snapshot_and_non_tty_explains() {
 
 #[test]
 fn demo_snapshot_needs_no_home_and_is_deterministic() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let home = p.home.join("absent");
     let run = || {
         let mut c = p.cmd(&["--json", "top", "--demo", "--snapshot"]);
@@ -848,21 +854,21 @@ fn restart_and_stop_are_reported_and_recovered() {
 fn monitoring_is_read_only() {
     let (p, proj) = lab();
     five_agents(&p, &proj);
-    let roles = |p: &PGBoxDB| {
+    let roles = |p: &Pgboxdb| {
         p.psql(
             "postgres",
             "SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles",
         )
         .stdout
     };
-    let rows = |p: &PGBoxDB| {
+    let rows = |p: &Pgboxdb| {
         p.psql(
             "myapp",
             "SELECT string_agg(id || ':' || title, ',' ORDER BY id) FROM posts",
         )
         .stdout
     };
-    let dbnames = |p: &PGBoxDB| {
+    let dbnames = |p: &Pgboxdb| {
         p.psql(
             "postgres",
             "SELECT string_agg(datname, ',' ORDER BY datname) FROM pg_database",

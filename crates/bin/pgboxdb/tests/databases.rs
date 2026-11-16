@@ -1,8 +1,8 @@
 mod common;
-use common::PGBoxDB;
+use common::Pgboxdb;
 
-fn up() -> PGBoxDB {
-    let p = PGBoxDB::new();
+fn up() -> Pgboxdb {
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     p
@@ -279,7 +279,7 @@ fn ls_json_shape() {
 
 #[test]
 fn db_commands_need_running_runtime() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     let r = p.run(&["create", "x"]);
     assert_eq!(r.code, 3, "{}", r.all());

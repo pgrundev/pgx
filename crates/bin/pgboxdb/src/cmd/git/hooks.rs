@@ -217,11 +217,13 @@ pub fn install(repo: &Repo) -> Result<(Vec<HookReport>, Vec<HookRecord>)> {
                         continue;
                     }
                 }
-                let owned_before = text.starts_with("#!/bin/sh\n# >>> pgboxdb git hook >>>")
-                    && strip_block(&text, BEGIN, END).is_some_and(|r| r.trim() == "#!/bin/sh");
+                let owned_before = (text.starts_with(&format!("#!/bin/sh\n{BEGIN}"))
+                    || text.starts_with(&format!("#!/bin/sh\n{}", crate::legacy::GIT_HOOK_BEGIN)))
+                    && strip_ours(&text).is_some_and(|r| r.trim() == "#!/bin/sh");
                 let mode = if owned_before { "file" } else { "block" };
-                // Refresh our block in place (the pgboxdb path may have moved).
-                let base = strip_block(&text, BEGIN, END);
+                // Refresh our block in place (the pgboxdb path may have moved);
+                // a block written before the rename is replaced, not kept beside it.
+                let base = strip_ours(&text);
                 let present = base.is_some();
                 let base = base.unwrap_or_else(|| text.clone());
                 let new_text = match base.split_once('\n') {
@@ -284,11 +286,12 @@ pub fn uninstall(repo: &Repo) -> Result<Vec<HookReport>> {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Some(rest) = strip_block(&text, BEGIN, END) else {
+        let Some(rest) = strip_ours(&text) else {
             continue;
         };
         if rest.trim() == "#!/bin/sh" || rest.trim().is_empty() {
-            std::fs::remove_file(&path).map_err(|e| PgboxdbError::io("cannot remove", &path, &e))?;
+            std::fs::remove_file(&path)
+                .map_err(|e| PgboxdbError::io("cannot remove", &path, &e))?;
             reports.push(HookReport {
                 name: name.into(),
                 path,
@@ -308,6 +311,35 @@ pub fn uninstall(repo: &Repo) -> Result<Vec<HookReport>> {
     Ok(reports)
 }
 
+/// The text without our block: the current one and/or the one written before
+/// the rename. None when neither is present.
+pub fn strip_ours(text: &str) -> Option<String> {
+    let a = strip_block(text, BEGIN, END);
+    let base = a.clone().unwrap_or_else(|| text.to_string());
+    match strip_block(
+        &base,
+        crate::legacy::GIT_HOOK_BEGIN,
+        crate::legacy::GIT_HOOK_END,
+    ) {
+        Some(b) => Some(b),
+        None => a,
+    }
+}
+
+/// Hooks that still carry only the block written before the rename (it runs
+/// the previous CLI, which no longer manages these databases).
+pub fn legacy_blocks(repo: &Repo) -> Vec<PathBuf> {
+    let dir = repo.hooks_dir();
+    HOOKS
+        .iter()
+        .map(|n| dir.join(n))
+        .filter(|p| {
+            std::fs::read_to_string(p)
+                .is_ok_and(|t| t.contains(crate::legacy::GIT_HOOK_BEGIN) && !t.contains(BEGIN))
+        })
+        .collect()
+}
+
 /// Which hooks currently carry PGBoxDB's block.
 pub fn status(repo: &Repo) -> Vec<(String, PathBuf, bool)> {
     let dir = repo.hooks_dir();
@@ -324,6 +356,24 @@ pub fn status(repo: &Repo) -> Vec<(String, PathBuf, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strip_ours_removes_the_current_and_the_previous_block() {
+        let old =
+            "#!/bin/sh\n# >>> pgx git hook >>>\nold body\n# <<< pgx git hook <<<\necho mine\n";
+        assert_eq!(strip_ours(old).as_deref(), Some("#!/bin/sh\necho mine\n"));
+        let cur = format!(
+            "#!/bin/sh\n{}echo mine\n",
+            block("post-checkout", Path::new("/x/pgboxdb"))
+        );
+        assert_eq!(strip_ours(&cur).as_deref(), Some("#!/bin/sh\necho mine\n"));
+        let both = format!(
+            "#!/bin/sh\n{}# >>> pgx git hook >>>\nx\n# <<< pgx git hook <<<\necho mine\n",
+            block("post-merge", Path::new("/x/pgboxdb"))
+        );
+        assert_eq!(strip_ours(&both).as_deref(), Some("#!/bin/sh\necho mine\n"));
+        assert!(strip_ours("#!/bin/sh\necho mine\n").is_none());
+    }
 
     #[test]
     fn the_block_survives_sh_e_without_pgboxdb() {

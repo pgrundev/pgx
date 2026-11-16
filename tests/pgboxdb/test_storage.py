@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import pgclient  # noqa: E402
-from lib.harness import PGBoxDB, scratch_root  # noqa: E402
+from lib.harness import Pgboxdb, scratch_root  # noqa: E402
 
 CYCLES = int(os.environ.get("PGBOXDB_TEST_CYCLES", "200"))
 
@@ -72,7 +72,7 @@ class SmallVolume:
 class StorageCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pgboxdb = PGBoxDB("stor").up()
+        cls.pgboxdb = Pgboxdb("stor").up()
         cls.pgboxdb.cli("create", "src", check=True)
         with cls.pgboxdb.connect("src") as c:
             c.query("CREATE TABLE t (id int PRIMARY KEY, v text)")
@@ -193,7 +193,7 @@ class LowDiskCase(unittest.TestCase):
         if sys.platform != "darwin":
             self.skipTest("COVERAGE GAP: low-disk (no small volume without root on this platform)")
         self.vol = SmallVolume()
-        self.pgboxdb = PGBoxDB("low")
+        self.pgboxdb = Pgboxdb("low")
         self.pgboxdb.home = os.path.join(self.vol.mount, "h")
         self.pgboxdb.env["PGBOXDB_HOME"] = self.pgboxdb.home
         os.makedirs(self.pgboxdb.home)

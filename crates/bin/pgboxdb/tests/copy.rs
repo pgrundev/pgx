@@ -3,7 +3,7 @@
 //! distribution, then branched with `pgboxdb clone`. Needs PGBOXDB_DIST and a
 //! PostgreSQL bin directory (PGBOXDB_TEST_PG_BINDIR / PG18_BINDIR / PATH).
 mod common;
-use common::{PgSource, PGBoxDB};
+use common::{PgSource, Pgboxdb};
 use std::time::{Duration, Instant};
 
 /// A representative application schema: extensions, enum, serials, FK, GIN
@@ -36,14 +36,20 @@ fn source_with_app() -> PgSource {
     src
 }
 
-fn pgboxdb_up() -> PGBoxDB {
-    let p = PGBoxDB::new();
+fn pgboxdb_up() -> Pgboxdb {
+    let p = Pgboxdb::new();
     let r = p.run_cmd(&[]);
-    assert_eq!(r.code, 0, "pgboxdb run failed: {}\n{}", r.all(), p.log_tail());
+    assert_eq!(
+        r.code,
+        0,
+        "pgboxdb run failed: {}\n{}",
+        r.all(),
+        p.log_tail()
+    );
     p
 }
 
-fn count(p: &PGBoxDB, db: &str, sql: &str) -> String {
+fn count(p: &Pgboxdb, db: &str, sql: &str) -> String {
     let r = p.psql(db, sql);
     assert_eq!(r.code, 0, "{}", r.all());
     r.stdout.trim().to_string()
@@ -815,7 +821,7 @@ fn errors_unsupported_extension_is_refused_before_anything_is_created() {
 #[test]
 fn errors_runtime_not_running_or_not_initialised() {
     let src = source_with_app();
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let r = p.copy(&src, "myapp", "t", &[]);
     assert_eq!(r.code, 3, "not initialised: {}", r.all());
     p.init_ok();
@@ -828,7 +834,7 @@ fn errors_runtime_not_running_or_not_initialised() {
 
 #[test]
 fn help_and_doctor_mention_copy() {
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     let h = p.run(&["help"]);
     assert!(h.stdout.contains("pgboxdb copy --from"), "{}", h.stdout);
     assert!(h.stdout.contains("--schema-only"));
@@ -854,7 +860,7 @@ fn b2_schema_only_keeps_migration_bookkeeping_rows() {
          CREATE SCHEMA \"App.Core\"; CREATE TABLE \"App.Core\".schema_migrations(version varchar PRIMARY KEY); INSERT INTO \"App.Core\".schema_migrations VALUES ('1');",
     );
     assert_eq!(q.code, 0, "{}", q.all());
-    let p = PGBoxDB::new();
+    let p = Pgboxdb::new();
     p.init_ok();
     p.start_ok();
     let r = p.copy_json(&src, "bk", "bk_tpl", &["--schema-only"]);

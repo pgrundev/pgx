@@ -147,12 +147,14 @@ fn init_with_run_dir_override_accepts_long_home() {
     let p = Pgboxdb::with_home(long);
     let run_dir = common::scratch_root().join(format!("rd{}", p.port));
     let port = p.port.to_string();
-    let r = common::output_locked(
-        p.cmd(&["init", "--port", &port])
-            .env("PGBOXDB_RUN_DIR", &run_dir),
-    )
-    .unwrap();
-    let r = common::Run::from(r);
+    let r = p.output_retrying_pub(
+        || {
+            let mut c = p.cmd(&["init", "--port", &port]);
+            c.env("PGBOXDB_RUN_DIR", &run_dir);
+            c
+        },
+        "pgboxdb init",
+    );
     assert_eq!(r.code, 0, "{}", r.all());
     assert_eq!(p.config()["run_dir"], run_dir.to_string_lossy().as_ref());
     let _ = std::fs::remove_dir_all(run_dir);
@@ -478,22 +480,26 @@ fn serve_runs_in_foreground_and_initialises() {
 fn init_honors_pgboxdb_password_env() {
     let p = Pgboxdb::new();
     let port = p.port.to_string();
-    let r = common::output_locked(
-        p.cmd(&["init", "--port", &port])
-            .env("PGBOXDB_PASSWORD", "supersecret123"),
-    )
-    .unwrap();
-    assert_eq!(common::Run::from(r).code, 0);
+    let r = p.output_retrying_pub(
+        || {
+            let mut c = p.cmd(&["init", "--port", &port]);
+            c.env("PGBOXDB_PASSWORD", "supersecret123");
+            c
+        },
+        "pgboxdb init",
+    );
+    assert_eq!(r.code, 0, "{}", r.all());
     assert_eq!(p.config()["password"], "supersecret123");
     // too short is rejected
     let p2 = Pgboxdb::new();
     let port2 = p2.port.to_string();
-    let r = common::Run::from(
-        common::output_locked(
-            p2.cmd(&["init", "--port", &port2])
-                .env("PGBOXDB_PASSWORD", "short"),
-        )
-        .unwrap(),
+    let r = p2.output_retrying_pub(
+        || {
+            let mut c = p2.cmd(&["init", "--port", &port2]);
+            c.env("PGBOXDB_PASSWORD", "short");
+            c
+        },
+        "pgboxdb init",
     );
     assert_eq!(r.code, 2, "{}", r.all());
     assert!(r.stderr.contains("too short"), "{}", r.stderr);

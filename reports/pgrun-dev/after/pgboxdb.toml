@@ -1,0 +1,6 @@
+# .pgboxdb.toml — PGBoxDB agent configuration for this project (safe to commit).
+# Written by `pgboxdb agent setup`; see docs/pgboxdb/local-dev/agents.md.
+[agent]
+source = "pgrun_template"        # the PGBoxDB database every agent session branches from
+idle_ttl = "2h"           # a branch expires this long after the agent's last activity
+grace_period = "10m"      # how long a branch survives after its session ends

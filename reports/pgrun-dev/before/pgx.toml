@@ -1,0 +1,6 @@
+# .pgx.toml — PGX agent configuration for this project (safe to commit).
+# Written by `pgx agent setup`; see docs/pgx/local-dev/agents.md.
+[agent]
+source = "pgrun_template"        # the PGX database every agent session branches from
+idle_ttl = "2h"           # a branch expires this long after the agent's last activity
+grace_period = "10m"      # how long a branch survives after its session ends

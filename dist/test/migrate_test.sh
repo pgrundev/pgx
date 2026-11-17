@@ -108,6 +108,10 @@ after="$(cd "$HOME/.pgboxdb" && find . -type f ! -name migrated-from.json | LC_A
 [ "$before" = "$after" ] || fail "file contents changed during the move"
 [ -f .pgboxdb.toml ] || fail ".pgboxdb.toml not written"
 grep -q 'source = "app"' .pgboxdb.toml || fail ".pgboxdb.toml lost the source"
+# The previous CLI wrote trailing comments ("# the PGX database ..."): every
+# comment is converted, every value kept.
+grep -n 'PGX\|`pgx \|docs/pgx/\|\.pgx\.toml' .pgboxdb.toml && fail ".pgboxdb.toml comments still name the previous CLI"
+[ "$(grep -c '=' .pgboxdb.toml)" = "$(grep -c '=' .pgx.toml)" ] || fail ".pgboxdb.toml has a different number of settings"
 [ -f .pgx.toml ] || fail ".pgx.toml was removed"
 [ "$(cat .git/pgboxdb-repo-id)" = "$REPO_ID" ] && [ "$(cat .git/pgx-repo-id)" = "$REPO_ID" ] || fail "repo id not carried over"
 echo "$out" | grep -q 'pgboxdb agent install claude --scope project' || fail "no agent hook action item: $out"

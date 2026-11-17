@@ -390,24 +390,55 @@ fn project_root(cwd: &Path) -> Option<PathBuf> {
 }
 
 /// Comments in the old project file name the old CLI; values are copied as they are.
+/// Both whole-line comments and trailing comments after a value (as `agent
+/// setup` writes them) are converted; a `#` inside a quoted value is not a comment.
 fn convert_project_file(text: &str) -> String {
     text.lines()
-        .map(|l| {
-            if l.trim_start().starts_with('#') {
-                l.replace(
-                    legacy::PROJECT_FILE,
-                    crate::cmd::agent::project::CONFIG_FILE,
-                )
-                .replace("`pgx ", "`pgboxdb ")
-                .replace("docs/pgx/", "docs/pgboxdb/")
-                .replace("PGX", "PGBoxDB")
-            } else {
-                l.to_string()
-            }
+        .map(|l| match comment_start(l) {
+            Some(i) => format!("{}{}", &l[..i], convert_comment(&l[i..])),
+            None => l.to_string(),
         })
         .collect::<Vec<_>>()
         .join("\n")
         + if text.ends_with('\n') { "\n" } else { "" }
+}
+
+fn convert_comment(c: &str) -> String {
+    c.replace(
+        legacy::PROJECT_FILE,
+        crate::cmd::agent::project::CONFIG_FILE,
+    )
+    .replace("`pgx ", "`pgboxdb ")
+    .replace("docs/pgx/", "docs/pgboxdb/")
+    .replace("PGX", "PGBoxDB")
+}
+
+/// Byte offset of the `#` that starts a TOML comment on this line, if any:
+/// the first `#` outside a basic ("…", with \ escapes) or literal ('…') string.
+fn comment_start(line: &str) -> Option<usize> {
+    let (mut basic, mut literal, mut escaped) = (false, false, false);
+    for (i, ch) in line.char_indices() {
+        if basic {
+            match ch {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => basic = false,
+                _ => {}
+            }
+        } else if literal {
+            if ch == '\'' {
+                literal = false;
+            }
+        } else {
+            match ch {
+                '#' => return Some(i),
+                '"' => basic = true,
+                '\'' => literal = true,
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 fn project_steps(cwd: &Path, apply: bool, steps: &mut Vec<Step>) -> Result<()> {
@@ -615,6 +646,22 @@ mod tests {
         assert_eq!(
             new,
             "# Written by `pgboxdb agent setup`; see docs/pgboxdb/local-dev/agents.md.\n[agent]\nsource = \"pgx_app\"\n"
+        );
+    }
+
+    #[test]
+    fn trailing_comments_are_converted_and_quoted_hashes_kept() {
+        // What `pgx agent setup` wrote (PGRun's own .pgx.toml has this shape).
+        let old = "[agent]\nsource = \"pgrun_template\"        # the PGX database every agent session branches from\nidle_ttl = \"2h\"\n";
+        assert_eq!(
+            convert_project_file(old),
+            "[agent]\nsource = \"pgrun_template\"        # the PGBoxDB database every agent session branches from\nidle_ttl = \"2h\"\n"
+        );
+        // A `#` (or "PGX") inside a value is data, not a comment.
+        let old = "source = \"PGX#1\" # PGX\nname = 'a#PGX' # see `pgx ls`\nesc = \"q\\\"#PGX\"\n";
+        assert_eq!(
+            convert_project_file(old),
+            "source = \"PGX#1\" # PGBoxDB\nname = 'a#PGX' # see `pgboxdb ls`\nesc = \"q\\\"#PGX\"\n"
         );
     }
 

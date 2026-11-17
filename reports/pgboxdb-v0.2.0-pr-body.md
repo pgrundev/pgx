@@ -11,6 +11,8 @@ only sets the version.
   references, docs). 0.1.x only ever shipped as PGX.
 - `dist_consistency_test.sh` also checks that the Worker `INSTALL_REF`
   equals `v<crate version>` (`v0.2.0`).
+- `tests/lifecycle.rs`: three init tests now retry a transient spawn failure
+  (ETXTBSY on the arm64 runner), like the rest of the harness.
 - Reports: the final release checklist and the runbook.
 
 ## Checks

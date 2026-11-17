@@ -74,7 +74,7 @@ curl -fsSL https://raw.githubusercontent.com/pgrundev/pgx/v0.1.3/dist/install.sh
 git fetch pgx
 git switch release/v0.2.0
 git merge --no-edit pgx/main        # brings in the merge commit of #50
-git diff pgx/main --stat            # the version-bump files (19) and 3 report files
+git diff pgx/main --stat            # the version bump (19 files), 3 report files, tests/lifecycle.rs
 git push -u pgx release/v0.2.0
 gh pr create -R pgrundev/pgboxdb --base main --head release/v0.2.0 \
   --title "release: PGBoxDB v0.2.0" --body-file reports/pgboxdb-v0.2.0-pr-body.md

@@ -17,7 +17,13 @@ Readiness and risks: `PGBOXDB_V0.2.0_READINESS.md`.
       merge commit, so the GitHub history is preserved
 - [x] `release/v0.2.0` brought up to date with `pgx/main` (merge, local, not
       pushed). Its diff against `main` is only the version bump (19 files)
-      plus 3 report files (checklist, runbook, PR body)
+      plus 3 report files (checklist, runbook, PR body) and one test fix
+- [x] **CI on `main` after the merge** (run 44034607732): every job green
+      except Linux arm64, which hit a test-harness flake. One lifecycle test
+      spawned the binary without the harness retry and got ETXTBSY ("Text
+      file busy"); the same tree passed on the PR. The failed job was re-run,
+      and `5a6db56443` on `release/v0.2.0` routes the three affected tests
+      through the retrying spawn (lifecycle 27/27 locally)
 - [x] Re-tested on `release/v0.2.0`: release replay 31/31, consistency 42/42,
       `version.sh push v0.2.0` → `0.2.0`, npm 22/22, Skill suite
 - [x] **`npm-publish` environment**: 1 required reviewer (`alexshapalov`).

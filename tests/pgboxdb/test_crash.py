@@ -31,6 +31,58 @@ REPEAT = int(os.environ.get("PGBOXDB_TEST_REPEAT", "5"))
 LOSS_WINDOW_S = 1.0
 
 
+def prefix_violation(acked_ids, present):
+    """Checks the ids found after a crash against the commit order.
+
+    `acked_ids` are the ids whose COMMIT was acknowledged, in order (one
+    writer, consecutive ids). At the kill one more commit may be in flight:
+    durable on the server, its acknowledgement never read by the killed
+    client. That id, acked_ids[-1] + 1, may therefore be present, but only
+    as the last row (WAL loses a tail, never the middle).
+
+    Returns (error or None, number of acknowledged commits lost).
+    """
+    inflight = acked_ids[-1] + 1 if acked_ids else 1
+    order = list(acked_ids) + [inflight]
+    found = sorted(present)
+    stray = sorted(set(found) - set(order))
+    if stray:
+        return "rows present that were never acknowledged: %s" % stray[:5], None
+    if len(found) != len(set(found)):
+        return "duplicate rows present", None
+    if found != order[:len(found)]:
+        return "committed rows are not a prefix of the commit order", None
+    return None, len(acked_ids) - len(set(found) & set(acked_ids))
+
+
+class PrefixRule(unittest.TestCase):
+    """prefix_violation itself (no engine)."""
+
+    def test_rule(self):
+        ok = [
+            ([1, 2, 3], [1, 2, 3], 0),     # everything survived
+            ([1, 2, 3], [1, 2, 3, 4], 0),  # plus the in-flight commit (the former false failure)
+            ([1, 2, 3], [1, 2], 1),        # a lost tail (allowed only under ephemeral)
+            ([1, 2, 3], [], 3),
+            ([], [], 0),
+            ([], [1], 0),                  # the very first commit in flight
+        ]
+        for acked, present, lost in ok:
+            self.assertEqual(prefix_violation(acked, present), (None, lost), (acked, present))
+        bad = [
+            ([1, 2, 3], [1, 2, 3, 5], "never acknowledged"),   # more than one unacknowledged
+            ([1, 2, 3], [1, 2, 3, 4, 5], "never acknowledged"),
+            ([1, 2, 3], [1, 3], "not a prefix"),               # a hole in the middle
+            ([1, 2, 3], [1, 2, 4], "not a prefix"),            # in-flight row but an acknowledged one lost
+            ([1, 2, 3], [2, 3], "not a prefix"),
+            ([1, 2, 3], [1, 1, 2], "duplicate"),
+        ]
+        for acked, present, want in bad:
+            err, _ = prefix_violation(acked, present)
+            self.assertIsNotNone(err, (acked, present))
+            self.assertIn(want, err, (acked, present))
+
+
 class CrashCase(unittest.TestCase):
     def setUp(self):
         self.pgboxdb = Pgboxdb("crash", durability=DURABILITY).up()
@@ -69,16 +121,12 @@ class CrashCase(unittest.TestCase):
         return dbs, dirs
 
     def check_prefix(self, acked, present, kill_time, label):
-        """`present` ids must be a prefix of the acknowledged commit order."""
-        acked_ids = [i for i, _ in acked]
-        self.assertTrue(set(present) <= set(acked_ids) | {acked_ids[-1] + 1 if acked_ids else 1},
-                        "%s: rows present that were never acknowledged: %s" % (label, sorted(set(present) - set(acked_ids))[:5]))
-        k = len(present)
-        self.assertEqual(sorted(present), acked_ids[:k], "%s: committed rows are not a prefix of the commit order" % label)
-        lost = acked[k:]
+        """`present` ids must be a prefix of the commit order; returns the number of acknowledged commits lost."""
+        err, lost = prefix_violation([i for i, _ in acked], present)
+        self.assertIsNone(err, "%s: %s" % (label, err))
         if DURABILITY == "full":
             # fsync + synchronous_commit on: every acknowledged commit must survive.
-            self.assertEqual(lost, [], "%s: durability=full lost %d acknowledged commits" % (label, len(lost)))
+            self.assertEqual(lost, 0, "%s: durability=full lost %d acknowledged commits" % (label, lost))
         else:
             # synchronous_commit off: recent commits not yet flushed by the
             # walwriter may be lost. This is documented async-commit behaviour,
@@ -86,7 +134,7 @@ class CrashCase(unittest.TestCase):
             # batch in the caller) are what must hold. The amount lost depends on
             # walwriter timing and host I/O, so it is reported, not bounded here.
             pass
-        return len(lost)
+        return lost
 
     # ---------------------------------------------------------------- cases
     def test_signals_at_rest(self):

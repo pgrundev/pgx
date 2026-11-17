@@ -11,7 +11,7 @@
 # * softprops/action-gh-release: its `files` globs are resolved, and the
 #   run fails like the action does with `fail_on_unmatched_files`.
 #
-# `run:` steps execute for real (sh -e) with the job's environment. The
+# `run:` steps execute for real (bash -eo pipefail, the runner default) with the job's environment. The
 # replay must end with exactly the supported assets attached. The v0.1.3
 # bug (a checkout after the download wiped artifacts/, giving a draft with
 # no assets) fails it, and so does each mutation in MUTATIONS, so the test
@@ -85,7 +85,7 @@ end
 
 # Replays the job. Returns the sorted list of files the release step would
 # attach; raises ReplayError where the real run would fail.
-def replay(job, artifacts: BUILT, corrupt: nil, stray: false)
+def replay(job, artifacts: BUILT, corrupt: nil, stray: false, release: true)
   Dir.mktmpdir("pgboxdb-release-replay") do |ws|
     ctx = {
       "needs.guard.outputs.version" => VERSION,
@@ -135,11 +135,12 @@ def replay(job, artifacts: BUILT, corrupt: nil, stray: false)
         end
       elsif step["run"]
         senv = env.merge((step["env"] || {}).transform_values { |v| expand(v.to_s, ctx) })
-        out, status = Open3.capture2e(senv, "sh", "-e", "-c", expand(step["run"], ctx), chdir: ws)
+        out, status = Open3.capture2e(senv, "bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", expand(step["run"], ctx), chdir: ws)
         raise ReplayError, "#{label}: exit #{status.exitstatus}: #{out.strip.lines.last(3).join}" unless status.success?
       end
     end
-    raise ReplayError, "the job never creates the release"
+    raise ReplayError, "the job never creates the release" if release
+    return :completed
   end
 end
 
@@ -186,6 +187,27 @@ if checkout_i && download_i
 end
 no_collect = mutate(draft) { |st| st.reject! { |s| s["run"].to_s.include?("collect.sh") } }
 expect_fail("mutation: no collect step is caught", no_collect, /matched no file|attached/)
+
+# 3b. The workflow_dispatch dry run of the draft job.
+dry = jobs["draft-dry-run"]
+check("draft-dry-run job exists", dry)
+if dry
+  check("draft-dry-run never creates a release", dry["steps"].none? { |st| st["uses"].to_s.include?("action-gh-release") })
+  check("draft-dry-run runs only on workflow_dispatch", dry["if"].to_s == "github.event_name == 'workflow_dispatch'", dry["if"].inspect)
+  begin
+    check("draft-dry-run completes on a full artifact set", replay(dry, release: false) == :completed)
+  rescue ReplayError => e
+    check("draft-dry-run completes on a full artifact set", false, e.message)
+  end
+  begin
+    replay(dry, release: false, artifacts: BUILT - ["darwin-arm64"])
+    check("draft-dry-run fails on a missing target", false, "completed")
+  rescue ReplayError => e
+    check("draft-dry-run fails on a missing target", e.message.include?("missing"), e.message)
+  end
+end
+mainstep = jobs["guard"]["steps"].find { |st| st["name"].to_s.include?("ancestor of origin/main") }
+check("the on-main check applies to tag pushes", mainstep && mainstep["if"] == "github.event_name == 'push'", mainstep&.dig("if").inspect)
 
 # 4. Triggers and conditions.
 check("draft job runs only on a tag push",

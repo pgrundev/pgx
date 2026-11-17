@@ -16,6 +16,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Worker unit tests (node:test)
         run: node --test dist/pgboxdb.com/install-worker.test.js
+  release-workflow:
+    name: release workflow (draft job replay, version resolution)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Replays release.yml's draft job against fake build artifacts; fails if
+      # a step order or glob would create a release without its assets.
+      - name: release.yml regression tests
+        run: ruby dist/test/release_workflow_test.rb
   npm:
     name: npm wrapper (pgboxdb) tests (${{ matrix.os }})
     strategy:

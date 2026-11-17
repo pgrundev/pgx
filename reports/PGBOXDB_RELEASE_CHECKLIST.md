@@ -40,20 +40,28 @@ Branch `release/v0.2.0` (`5fbbfd079f`, on top of `130d8a56ba`):
       Skill e2e and unit, plugin, npm, and the consistency test (42/42)
       against an assembled 0.2.0 distribution.
 
-## Decisions needed before release
+## Decisions
 
 - [ ] **Legal review** of the remaining uses of the previous name
       (compatibility matrix, "Legal review" items 1–6)
-- [ ] **Release notes body**: keep, relabel ("released as PGX") or trim the
-      older sections (readiness, risk 3)
-- [ ] npm `pgxdb`: leave it, or publish a deprecation message (an outward
-      change, and the message would name the old package)
-- [ ] pgx.dev: what it serves after the rename (no redirect was
-      implemented)
-- [ ] `PGX_AGENT_TOKEN`: rotate or not (a production change; PGRun
-      migration §F)
+- [x] Release notes: v0.1.x kept as published (PGX), under "Earlier releases
+      (as PGX)"; PGBoxDB starts at v0.2.0 (`1fc2afb8b5`)
+- [x] npm `pgxdb` and pgx.dev: unchanged, pending legal review
+- [x] `PGX_AGENT_TOKEN` rotation: a separate production maintenance task
 - [ ] `SECURITY.md` / issue templates for the public launch (they need a
       reporting contact)
+
+## CI validation (done, 2026-11-17)
+
+- [x] `rebrand/pgboxdb` pushed; draft PR #50. CI run 44017542703 green:
+      Linux amd64 and arm64, macOS, Docker amd64 and arm64, npm, Worker,
+      Skill, plugin, release-workflow
+- [x] Release workflow on GitHub: run 44017561323 (`workflow_dispatch`).
+      All 4 builds passed with packaged tests; `draft-dry-run` listed
+      exactly 7 files; no release or tag was created
+- [x] `release/v0.2.0` contains every rebrand commit (merge, local)
+
+**The exact release commands are in `PGBOXDB_V0.2.0_RELEASE_RUNBOOK.md`.**
 
 ## Requires approval: in this order
 

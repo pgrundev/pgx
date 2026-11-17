@@ -49,23 +49,23 @@ jobs:
         id: re2cache
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/pgx-static-re2
+          path: ${{ runner.temp }}/pgboxdb-static-re2
           key: static-re2-macos-arm64-absl20260817.0-re2-2025-11-05-v1
       - name: Build static re2+abseil prefix (macOS)
         if: runner.os == 'macOS'
         run: |
-          PREFIX="$(PGX_RE2_PREFIX="$RUNNER_TEMP/pgx-static-re2" dist/macos/build-static-re2.sh)"
+          PREFIX="$(PGBOXDB_RE2_PREFIX="$RUNNER_TEMP/pgboxdb-static-re2" dist/macos/build-static-re2.sh)"
           echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: "1.96.0" }
       - uses: Swatinem/rust-cache@v2
       - name: Build (release, packaged binaries)
-        run: cargo build --release --locked --bin postgres --bin pgx
+        run: cargo build --release --locked --bin postgres --bin pgboxdb
       - name: Assemble the release tarball
         run: dist/assemble.sh --out "$RUNNER_TEMP/rel" --version "$VERSION" --pg-bindir "$PG18_BINDIR"
       - name: Self-contained check (macOS)
         if: runner.os == 'macOS'
-        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgx-$VERSION-*")"
+        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgboxdb-$VERSION-*")"
       - name: Show architecture + checksum
         run: |
           uname -m
@@ -73,7 +73,7 @@ jobs:
           cat "$RUNNER_TEMP"/rel/*.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: pgx-${{ matrix.target }}
+          name: pgboxdb-${{ matrix.target }}
           path: |
             ${{ runner.temp }}/rel/*.tar.gz
             ${{ runner.temp }}/rel/*.tar.gz.sha256
@@ -93,7 +93,7 @@ jobs:
       - name: Clean-runtime base (only libxml2 + ICU, as the Docker runtime ships)
         run: |
           apt-get update
-          # libxml2 + ICU are the only PGX runtime libs (as the Docker runtime
+          # libxml2 + ICU are the only PGBoxDB runtime libs (as the Docker runtime
           # ships); file/procps/git are generic utilities the smoke test needs
           # (arch check, process checks, checkout) — not PostgreSQL.
           apt-get install -y --no-install-recommends libxml2 libicu74 ca-certificates git file procps
@@ -102,24 +102,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: pgx-${{ matrix.target }}
+          name: pgboxdb-${{ matrix.target }}
           path: dl
       - name: Verify checksum, architecture, extract
         run: |
           cd dl
           sha256sum -c ./*.tar.gz.sha256
           tar -xzf ./*.tar.gz
-          d="$(find . -maxdepth 1 -type d -name 'pgx-*')"
+          d="$(find . -maxdepth 1 -type d -name 'pgboxdb-*')"
           file "$d/bin/postgres" | tee /dev/stderr | grep -qiE 'ELF 64-bit'
           echo "DIST=$PWD/$d" >> "$GITHUB_ENV"
       - name: Smoke test the packaged artifact (clean environment, unprivileged)
         run: |
-          # PGX (like PostgreSQL) refuses to run as root; GH Actions containers
+          # PGBoxDB (like PostgreSQL) refuses to run as root; GH Actions containers
           # are root, so run the smoke test as an unprivileged user (as the
-          # Docker image does with its `pgx` user).
-          useradd -m -u 10001 pgxtester
-          chown -R pgxtester "$DIST" .
-          runuser -u pgxtester -- sh dist/test/smoke_packaged.sh "$DIST"
+          # Docker image does with its `pgboxdb` user).
+          useradd -m -u 10001 pgbtester
+          chown -R pgbtester "$DIST" .
+          runuser -u pgbtester -- sh dist/test/smoke_packaged.sh "$DIST"
 
   smoke-macos:
     name: smoke darwin-arm64 (no Homebrew re2/abseil loaded)
@@ -128,13 +128,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { name: pgx-darwin-arm64, path: dl }
+        with: { name: pgboxdb-darwin-arm64, path: dl }
       - name: Verify checksum, architecture, extract
         run: |
           cd dl
           shasum -a 256 -c ./*.tar.gz.sha256
           tar -xzf ./*.tar.gz
-          d="$(find . -maxdepth 1 -type d -name 'pgx-*')"
+          d="$(find . -maxdepth 1 -type d -name 'pgboxdb-*')"
           file "$d/bin/postgres" | grep -qi 'Mach-O 64-bit executable arm64'
           echo "DIST=$PWD/$d" >> "$GITHUB_ENV"
       - name: Self-contained + smoke (asserts 0 Homebrew dylibs loaded)

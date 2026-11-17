@@ -1,19 +1,19 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "pgx-plugin",
-  "description": "PGX: isolated, disposable Postgres databases for Claude Code agents. One plugin, installable from this lightweight repository.",
+  "name": "pgboxdb-plugin",
+  "description": "PGBoxDB: isolated, disposable Postgres databases for Claude Code agents. One plugin, installable from this lightweight repository.",
   "owner": {
     "name": "PGRunDev",
-    "url": "https://pgx.dev"
+    "url": "https://pgboxdb.com"
   },
   "plugins": [
     {
-      "name": "pgx",
+      "name": "pgboxdb",
       "source": "./",
       "description": "Give every AI coding agent its own isolated, disposable Postgres database.",
       "category": "database",
       "tags": ["postgres", "postgresql", "database", "ai-agents", "database-branching"],
-      "homepage": "https://github.com/pgrundev/pgx"
+      "homepage": "https://github.com/pgrundev/pgboxdb"
     }
   ]
 }

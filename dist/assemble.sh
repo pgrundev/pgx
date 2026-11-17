@@ -1,31 +1,31 @@
 #!/bin/sh
-# dist/assemble.sh — build the relocatable PGX distribution directory and
+# dist/assemble.sh — build the relocatable PGBoxDB distribution directory and
 # tarball described in dist/layout.md.
 #
-#   dist/assemble.sh --out DIR --version V [--engine PATH] [--pgx PATH]
+#   dist/assemble.sh --out DIR --version V [--engine PATH] [--pgboxdb PATH]
 #                    [--pg-bindir DIR] [--staged-share DIR]
 #
 #   --engine        the built server binary   (default: target/release/postgres)
-#   --pgx           the built CLI binary      (default: target/release/pgx)
+#   --pgboxdb       the built CLI binary      (default: target/release/pgboxdb)
 #   --pg-bindir     PostgreSQL 18 bin dir with initdb and pg_config; its share
 #                   dir supplies timezone, timezonesets and tsearch_data and
-#                   initdb produces share/pgx/base-cluster (default: PATH)
+#                   initdb produces share/pgboxdb/base-cluster (default: PATH)
 #   --staged-share  the contrib files main_main/build.rs stages beside the
 #                   engine (default: <engine dir>/share)
 #
-# Produces DIR/pgx-V-OS-ARCH/ and DIR/pgx-V-OS-ARCH.tar.gz(.sha256).
+# Produces DIR/pgboxdb-V-OS-ARCH/ and DIR/pgboxdb-V-OS-ARCH.tar.gz(.sha256).
 # Every file in the distribution is a regular file (symlinks dereferenced).
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT=""; VERSION=""; ENGINE="$ROOT/target/release/postgres"; PGX="$ROOT/target/release/pgx"
+OUT=""; VERSION=""; ENGINE="$ROOT/target/release/postgres"; PGBOXDB_BIN="$ROOT/target/release/pgboxdb"
 PG_BINDIR=""; STAGED=""; TZDIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --engine) ENGINE="$2"; shift 2 ;;
-    --pgx) PGX="$2"; shift 2 ;;
+    --pgboxdb) PGBOXDB_BIN="$2"; shift 2 ;;
     --pg-bindir) PG_BINDIR="$2"; shift 2 ;;
     --staged-share) STAGED="$2"; shift 2 ;;
     --tzdir) TZDIR="$2"; shift 2 ;;
@@ -37,7 +37,7 @@ die() { echo "assemble.sh: $*" >&2; exit 1; }
 [ -n "$OUT" ] || die "--out is required"
 [ -n "$VERSION" ] || die "--version is required"
 [ -x "$ENGINE" ] || die "engine binary not found or not executable: $ENGINE"
-[ -x "$PGX" ] || die "pgx binary not found or not executable: $PGX"
+[ -x "$PGBOXDB_BIN" ] || die "pgboxdb binary not found or not executable: $PGBOXDB_BIN"
 [ -n "$STAGED" ] || STAGED="$(dirname "$ENGINE")/share"
 [ -d "$STAGED/extension" ] || die "staged contrib dir missing: $STAGED/extension (build the engine with cargo so main_main/build.rs stages it)"
 
@@ -61,14 +61,14 @@ fi
 
 case "$(uname -s)" in Darwin) OS=darwin ;; Linux) OS=linux ;; *) die "unsupported OS: $(uname -s)" ;; esac
 case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) die "unsupported CPU: $(uname -m)" ;; esac
-NAME="pgx-$VERSION-$OS-$ARCH"
+NAME="pgboxdb-$VERSION-$OS-$ARCH"
 PREFIX="$OUT/$NAME"
 rm -rf "$PREFIX" "$PREFIX.partial"
-mkdir -p "$PREFIX.partial/bin" "$PREFIX.partial/share/pgx"
+mkdir -p "$PREFIX.partial/bin" "$PREFIX.partial/share/pgboxdb"
 P="$PREFIX.partial"
 
 # Binaries.
-cp "$ENGINE" "$P/bin/postgres"; cp "$PGX" "$P/bin/pgx"; chmod 755 "$P/bin/postgres" "$P/bin/pgx"
+cp "$ENGINE" "$P/bin/postgres"; cp "$PGBOXDB_BIN" "$P/bin/pgboxdb"; chmod 755 "$P/bin/postgres" "$P/bin/pgboxdb"
 
 # Share trees the engine reads (dereference symlinks: Homebrew's share dir is links).
 copy_tree() { mkdir -p "$2"; (cd "$1" && tar -chf - .) | (cd "$2" && tar -xf -); }
@@ -83,8 +83,8 @@ for f in "$PG_SHARE"/extension/plpgsql.control "$PG_SHARE"/extension/plpgsql--*.
   [ -e "$f" ] && cp -L "$f" "$P/share/extension/"
 done
 
-# Base cluster: a stock PostgreSQL 18 initdb, minus the files pgx writes itself.
-CLUSTER="$P/share/pgx/base-cluster"
+# Base cluster: a stock PostgreSQL 18 initdb, minus the files pgboxdb writes itself.
+CLUSTER="$P/share/pgboxdb/base-cluster"
 "$INITDB" -D "$CLUSTER" --no-locale --encoding UTF8 -U postgres -A trust >"$OUT/initdb.log" 2>&1 \
   || { cat "$OUT/initdb.log" >&2; die "initdb failed"; }
 rm -f "$CLUSTER/postgresql.conf" "$CLUSTER/pg_hba.conf" "$CLUSTER/pg_ident.conf" "$CLUSTER/postmaster.pid" "$CLUSTER/postmaster.opts"
@@ -94,13 +94,13 @@ chmod -R u+rwX,go-rwx "$CLUSTER"
 
 # Licenses and notices.
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/dist/THIRD-PARTY-LICENSES.md" "$P/"
-cp "$ROOT/dist/layout.md" "$P/share/pgx/layout.md"
+cp "$ROOT/dist/layout.md" "$P/share/pgboxdb/layout.md"
 
 # Metadata.
 ENGINE_COMMIT="$(git -C "$ROOT" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
 if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null | grep -v '^??' || true)" ]; then ENGINE_COMMIT="$ENGINE_COMMIT-dirty"; fi
-cat > "$P/share/pgx/dist.json" <<JSON
-{"pgx_version":"$VERSION","engine_commit":"$ENGINE_COMMIT","postgres_compat":"18.6","initdb_version":"$INITDB_VERSION","tzdata_source":"$TZDIR","os":"$OS","arch":"$ARCH","built_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+cat > "$P/share/pgboxdb/dist.json" <<JSON
+{"pgboxdb_version":"$VERSION","engine_commit":"$ENGINE_COMMIT","postgres_compat":"18.6","initdb_version":"$INITDB_VERSION","tzdata_source":"$TZDIR","os":"$OS","arch":"$ARCH","built_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 JSON
 
 [ "$(find "$P" -type l | wc -l | tr -d ' ')" = 0 ] || die "symlinks survived in $P"

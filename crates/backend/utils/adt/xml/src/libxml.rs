@@ -323,7 +323,7 @@ pub fn unavailable_error(detail: &str) -> PgError {
         .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
         .with_detail("This functionality requires the server to be built with libxml support.")
         .with_hint(format!(
-            "PGX binds libxml2 at run time and {detail}. Install the libxml2 shared library \
+            "PGBoxDB binds libxml2 at run time and {detail}. Install the libxml2 shared library \
              on this host (Debian/Ubuntu package libxml2, named libxml2-16 from Ubuntu 25.10)."
         ))
 }
@@ -333,7 +333,7 @@ pub fn unavailable_error(detail: &str) -> PgError {
 /// `.so.16`, Debian 13 and older Ubuntu only `.so.2`, and the bare
 /// `libxml2.so` symlink comes from the -dev package, which a runtime host
 /// does not install. Probing `.so.2` alone was the "could not dlopen
-/// libxml2.so.2" failure of every XML function on a PGX host.
+/// libxml2.so.2" failure of every XML function on a PGBoxDB host.
 #[cfg(all(not(target_family = "wasm"), not(target_os = "macos")))]
 pub const CANDIDATES: &[&CStr] = &[c"libxml2.so.16", c"libxml2.so.2", c"libxml2.so"];
 

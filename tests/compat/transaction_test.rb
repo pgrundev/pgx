@@ -2,7 +2,7 @@
 # recovery, full rollback, transactional temp tables.
 require_relative "compat_helper"
 
-class PgxCompat::TransactionTest < PgxCompat::Case
+class PgboxdbCompat::TransactionTest < PgboxdbCompat::Case
   category "TRANSACTION"
 
   def test_savepoint_and_rollback_to_savepoint_keeps_earlier_rows
@@ -89,7 +89,7 @@ class PgxCompat::TransactionTest < PgxCompat::Case
 
   def test_transactional_create_temp_table_is_gone_after_rollback
     out = compare("CREATE TEMP TABLE in a rolled-back transaction") do |db|
-      name = "#{PgxCompat::TABLE_PREFIX}#{db.tag}_tmp"
+      name = "#{PgboxdbCompat::TABLE_PREFIX}#{db.tag}_tmp"
       before = db.value("SELECT to_regclass('pg_temp.#{name}') IS NULL")
       db.exec("BEGIN")
       db.exec("CREATE TEMP TABLE #{name} (id int)")

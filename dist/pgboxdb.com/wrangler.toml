@@ -1,0 +1,24 @@
+# Cloudflare Worker that serves https://pgboxdb.com/install (see install-worker.js).
+# PREPARED, NOT DEPLOYED — deploying requires Cloudflare account access and
+# maintainer approval. It does not touch DNS or any other pgboxdb.com route.
+name = "pgboxdb-install"
+main = "install-worker.js"
+compatibility_date = "2026-10-01"
+
+# The route this Worker owns. Deploying this route REQUIRES that the configured
+# Cloudflare account controls the pgboxdb.com zone — `wrangler deploy` fails if the
+# account does not own `zone_name`, which is the enforcement point for
+# "verify the account controls the zone" (see README).
+routes = [
+  { pattern = "pgboxdb.com/install", zone_name = "pgboxdb.com" },
+]
+
+# Pinned release ref the installer is served from. There is no fallback in the
+# Worker: INSTALL_REF must be a release tag or commit sha, never a branch.
+# It must be a PGBoxDB release (0.2.0 or later): the install.sh of an earlier
+# tag installs the product from before the rename. Until the v0.2.0 tag
+# exists, the Worker answers 502 "installer unavailable" (fail closed).
+# dist/test/dist_consistency_test.sh enforces this.
+# Override per-deploy with:  wrangler deploy --var INSTALL_REF:v0.2.0
+[vars]
+INSTALL_REF = "v0.2.0"

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PGBoxDB — Every AI agent gets its own Postgres</title>
+<meta name="description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
+<link rel="canonical" href="https://pgboxdb.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PGBoxDB">
+<meta property="og:title" content="PGBoxDB — Lightweight Postgres-compatible database runtime for AI agents">
+<meta property="og:description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
+<meta property="og:url" content="https://pgboxdb.com/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="PGBoxDB — Lightweight Postgres-compatible database runtime for AI agents">
+<meta name="twitter:description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Archivo+Black&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0b0a;--fg:#e8e4de;--muted:#a39d94;--dim:#8a847c;--accent:#f0743e;--line:#26231f;--card:#131110}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:14px;line-height:1.6}
+a{color:var(--fg);text-decoration:none}a:hover{color:var(--accent)}
+.hero{position:relative;height:100vh;min-height:560px;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+header{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:24px 32px;pointer-events:none}
+header .brand{font-weight:700;letter-spacing:.08em}
+header nav{display:flex;gap:28px;pointer-events:auto}
+.tag{position:absolute;left:0;right:0;top:64%;display:flex;flex-direction:column;align-items:center;gap:14px;padding:0 24px;text-align:center;pointer-events:none}
+h1{margin:0;font-family:'Archivo Black','Arial Black',sans-serif;font-weight:400;font-size:clamp(24px,3.2vw,44px);letter-spacing:-.01em}
+.tag p{margin:0;font-size:clamp(12px,1.1vw,16px);color:var(--muted)}
+.tag .cmd{pointer-events:auto;margin-top:6px;background:#15130f;border:1px solid var(--line);padding:10px 16px;border-radius:6px;font-size:clamp(12px,1vw,15px);color:var(--fg)}
+.tag .cmd span{color:var(--accent)}
+.hint{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;padding:24px 32px;color:var(--dim);pointer-events:none}
+main{max-width:860px;margin:0 auto;padding:72px 24px 96px}
+h2{font-family:'Archivo Black','Arial Black',sans-serif;font-weight:400;font-size:22px;margin:56px 0 16px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;overflow-x:auto;margin:16px 0}
+code{font-family:inherit}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:20px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px}
+.card b{display:block;margin-bottom:6px}
+.card p{margin:0;color:var(--muted)}
+table{width:100%;border-collapse:collapse;margin:16px 0}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:400}
+.ok{color:#7ee08a}.pend{color:var(--accent)}
+footer{border-top:1px solid var(--line);color:var(--dim);padding:32px 24px;text-align:center}
+blockquote{margin:16px 0;padding:12px 18px;border-left:2px solid var(--accent);color:var(--muted)}
+@media (max-width:640px){header,.hint{padding:18px 16px}main{padding:48px 16px 72px}}
+</style>
+</head>
+<body>
+<section class="hero">
+  <canvas id="c"></canvas>
+  <header>
+    <div class="brand">pgboxdb.com</div>
+    <nav>
+      <a href="#skill">skill</a>
+      <a href="skill.html">skill guide</a>
+      <a href="https://pgbox.dev/db">docs</a>
+      <a href="https://github.com/pgrundev/pgboxdb" target="_blank" rel="noopener">github</a>
+    </nav>
+  </header>
+  <div class="tag">
+    <h1>Every AI agent gets its own Postgres.</h1>
+    <p>Install one Skill. Your coding agent handles the database.</p>
+    <div class="cmd"><span>$</span> npx skills add pgrundev/pgboxdb --skill pgboxdb</div>
+  </div>
+  <div class="hint"><div>Postgres for agents · written in Rust</div><div>move to flow · click to blow</div></div>
+</section>
+
+<main>
+  <h2 id="skill">One Skill. Every agent gets its own Postgres.</h2>
+  <p>PGBoxDB is a lightweight, PostgreSQL-compatible database runtime built for disposable databases: one runtime, thousands of databases, each cloned copy-on-write in milliseconds and removed on its own. The PGBoxDB Skill teaches Claude Code, Cursor and Codex to use it: detect your project, import your development database schema-only into a template, and give <em>every session its own branch</em> with <code>DATABASE_URL</code> already set. Your PostgreSQL is read once and never written.</p>
+<pre><code># Recommended: AI coding agents
+npx skills add pgrundev/pgboxdb --skill pgboxdb
+
+# Manual PGBoxDB installation
+npx pgboxdb@latest</code></pre>
+  <p>Then, in your project, ask the agent:</p>
+  <blockquote>Use PGBoxDB to give this project isolated databases for coding agents. Set everything up.</blockquote>
+  <p>Installing a Skill executes nothing by itself. The agent performs the setup when the Skill is activated and your permissions allow it, and tells you what it did.</p>
+
+  <div class="grid">
+    <div class="card"><b>Skill-first setup</b><p>Project detection, PGBoxDB installation, template preparation and hook installation, driven by the agent.</p></div>
+    <div class="card"><b>Existing PostgreSQL</b><p><code>pgboxdb copy --schema-only</code> imports your schema (with migration bookkeeping) into a template. Data copies need your explicit approval.</p></div>
+    <div class="card"><b>PGBoxDB-only development</b><p>No PostgreSQL yet? An empty template and your framework's migrations are enough.</p></div>
+    <div class="card"><b>Per-agent isolation</b><p>Each session gets <code>agent-&lt;host&gt;-&lt;id&gt;</code>, its own database. Two agents never see each other's changes.</p></div>
+    <div class="card"><b>Fast branching</b><p>Copy-on-write clones on APFS, ZFS and reflink filesystems: tens of milliseconds whatever the template size.</p></div>
+    <div class="card"><b>Automatic cleanup</b><p>An idle TTL of two hours, extended while the agent works, and a ten-minute grace after the session. Nothing to remember.</p></div>
+  </div>
+
+  <h2>Hosts</h2>
+  <table>
+    <tr><th>Host</th><th>Automatic isolation</th><th>Status</th></tr>
+    <tr><td>Claude Code</td><td>Yes: hooks create the branch and set the environment for every command.</td><td class="ok">verified live</td></tr>
+    <tr><td>Cursor</td><td>Hooks installed; <code>pgboxdb agent exec -- &lt;command&gt;</code> when <code>PGBOXDB_ISOLATION</code> is unset.</td><td class="pend">env propagation pending verification</td></tr>
+    <tr><td>Codex</td><td><code>pgboxdb agent exec -- codex</code> (Codex hooks cannot set environment).</td><td class="ok">wrapper verified</td></tr>
+  </table>
+
+  <h2>Manual CLI, for developers who want control</h2>
+<pre><code>pgboxdb run                                   # a runtime and an `app` database, one command
+pgboxdb copy --from "$DATABASE_URL" --to app --schema-only
+pgboxdb branch app feature-123                # a disposable 2-hour branch
+pgboxdb agent exec -- bin/rails test          # any command in its own branch
+pgboxdb agent ls · pgboxdb agent doctor · pgboxdb ttl feature-123 4h · pgboxdb drop feature-123</code></pre>
+
+  <p>Read more: <a href="https://pgbox.dev/db">documentation</a> · <a href="skill.html">the Skill with Claude Code, Cursor and Codex</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/agents.md">agents guide</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/cli.md">CLI reference</a> · <a href="https://agentskills.io">Agent Skills specification</a> · <a href="https://github.com/pgrundev/pgboxdb">GitHub</a><!-- · <a href="https://skills.sh/pgrundev/pgboxdb">skills.sh</a> (enable once listed) --></p>
+  <p style="color:var(--dim)">Open source · AGPL-3.0 · For disposable databases, not production data · macOS arm64, Linux amd64 and arm64</p>
+</main>
+<footer>PGBoxDB — Postgres for agents.</footer>
+
+<script>
+(function(){
+  const c=document.getElementById('c'),ctx=c.getContext('2d');
+  const mouse={x:-1e4,y:-1e4,vx:0,vy:0,px:null,py:null};
+  let W,H,fs,ps=[],raf;
+  const ramp=' .:-=+*#%@',accent='#f0743e',R=110,Rs=R*R;
+  function build(){
+    const dpr=window.devicePixelRatio||1;W=c.clientWidth;H=c.clientHeight;
+    c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+    fs=Math.max(7,Math.min(13,W/130));const cw=fs*0.62,ch=fs*1.05;
+    const o=document.createElement('canvas');o.width=W;o.height=H;const g=o.getContext('2d');
+    let size=Math.min(H*0.5,W*0.34);g.font=size+"px 'Archivo Black','Arial Black',sans-serif";
+    const tw=g.measureText('PGBoxDB').width;if(tw>W*0.86){size*=(W*0.86)/tw;g.font=size+"px 'Archivo Black','Arial Black',sans-serif";}
+    g.textAlign='center';g.textBaseline='middle';g.fillStyle='#fff';g.shadowColor='#fff';g.shadowBlur=size*0.06;
+    g.fillText('PGBoxDB',W/2,H*0.40+size*0.04);
+    const d=g.getImageData(0,0,W,H).data;ps=[];
+    for(let y=ch/2;y<H;y+=ch)for(let x=cw/2;x<W;x+=cw){const a=d[((y|0)*W+(x|0))*4+3]/255;if(a<0.12)continue;
+      const ci=Math.min(ramp.length-1,Math.max(1,Math.round(a*(ramp.length-1))));ps.push({hx:x,hy:y,x:x,y:y,vx:0,vy:0,ch:ramp[ci]});}
+  }
+  c.addEventListener('pointermove',e=>{const r=c.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,m=mouse;if(m.px!==null){m.vx=x-m.px;m.vy=y-m.py;}m.px=m.x=x;m.py=m.y=y;});
+  c.addEventListener('pointerleave',()=>{const m=mouse;m.x=m.y=-1e4;m.px=m.py=null;m.vx=m.vy=0;});
+  c.addEventListener('pointerdown',e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;for(const p of ps){const dx=p.x-mx,dy=p.y-my,dd=Math.hypot(dx,dy)||1,f=2600/(dd+60);p.vx+=dx/dd*f*(0.6+Math.random()*0.8);p.vy+=dy/dd*f*(0.6+Math.random()*0.8);}});
+  window.addEventListener('resize',build);
+  function tick(){const m=mouse;ctx.fillStyle='#0c0b0a';ctx.fillRect(0,0,W,H);ctx.font="700 "+fs+"px 'JetBrains Mono',monospace";ctx.textAlign='center';ctx.textBaseline='middle';
+    const calm=[],warm=[],hot=[];
+    for(const p of ps){const dx=p.x-m.x,dy=p.y-m.y,d2=dx*dx+dy*dy;if(d2<Rs){const d=Math.sqrt(d2)||1,f=(1-d/R),f2=f*f;p.vx+=dx/d*f2*6+m.vx*f2*0.35;p.vy+=dy/d*f2*6+m.vy*f2*0.35;}
+      p.vx+=(p.hx-p.x)*0.018;p.vy+=(p.hy-p.y)*0.018;p.vx*=0.9;p.vy*=0.9;p.x+=p.vx;p.y+=p.vy;const off=Math.abs(p.x-p.hx)+Math.abs(p.y-p.hy);(off>40?hot:off>6?warm:calm).push(p);}
+    m.vx*=0.8;m.vy*=0.8;ctx.fillStyle='#e8e4de';for(const p of calm)ctx.fillText(p.ch,p.x,p.y);ctx.fillStyle='#c9a98f';for(const p of warm)ctx.fillText(p.ch,p.x,p.y);ctx.fillStyle=accent;for(const p of hot)ctx.fillText(p.ch,p.x,p.y);raf=requestAnimationFrame(tick);}
+  (document.fonts?document.fonts.ready:Promise.resolve()).then(()=>{build();tick();});
+})();
+</script>
+</body>
+</html>

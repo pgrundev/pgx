@@ -9,13 +9,13 @@
 #
 #   PREFIX="$(dist/macos/build-static-re2.sh)"
 #   export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
-#   cargo build --release --locked --bin postgres --bin pgx
+#   cargo build --release --locked --bin postgres --bin pgboxdb
 #
 # Versions default to what Homebrew currently installs; override with
 # ABSL_TAG / RE2_TAG. The prefix dir is printed on stdout (all logs go to
 # stderr) so it can be captured as above.
 set -eu
-PREFIX="${PGX_RE2_PREFIX:-${RUNNER_TEMP:-/tmp}/pgx-static-re2}"
+PREFIX="${PGBOXDB_RE2_PREFIX:-${RUNNER_TEMP:-/tmp}/pgboxdb-static-re2}"
 WORK="${PREFIX}.build"
 ABSL_TAG="${ABSL_TAG:-20260817.0}"
 RE2_TAG="${RE2_TAG:-2025-11-05}"

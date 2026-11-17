@@ -1977,7 +1977,7 @@ fn limits_refuse_only_enforced_threads_and_name_the_ceiling() {
 }
 
 // A retired session-root shell is kept until its thread has been joined,
-// then freed by reclaim_retired_session_roots (docs/pgx/lifecycle-memory.md).
+// then freed by reclaim_retired_session_roots (docs/pgboxdb/lifecycle-memory.md).
 #[cfg(feature = "std")]
 #[test]
 fn retired_session_roots_are_reclaimed_after_join() {

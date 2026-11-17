@@ -113,6 +113,6 @@ begin
   end
 rescue => e
   puts "APP rails: FAIL (#{e.class}: #{e.message})"
-  warn e.backtrace.first(8).join("\n") if ENV["PGX_RAILS_TRACE"]
+  warn e.backtrace.first(8).join("\n") if ENV["PGBOXDB_RAILS_TRACE"]
   exit 1
 end

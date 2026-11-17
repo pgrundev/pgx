@@ -1,9 +1,78 @@
-# PGX release
+# PGBoxDB release
 
 A self-contained, relocatable, PostgreSQL 18 compatible runtime for local
 development, CI and disposable databases. No system PostgreSQL required.
 
-## PGX v0.1.3 — One Git Branch, One Isolated Postgres
+## PGBoxDB vNEXT — the first release under the PGBoxDB name
+
+<!-- Release PR: replace vNEXT with the release version. It must be a version
+     never published before the rename (0.2.0 or later): see
+     reports/PGBOXDB_RELEASE_CHECKLIST.md. -->
+
+This runtime is now **PGBoxDB**: a lightweight Postgres-compatible database
+runtime for AI agents. Home: https://pgboxdb.com · documentation:
+https://pgbox.dev/db.
+
+```sh
+npx pgboxdb@latest          # or: curl -fsSL https://pgboxdb.com/install | sh
+pgboxdb --version
+```
+
+- **One name everywhere:** the command is `pgboxdb`, the npm package is
+  `pgboxdb`, environment variables are `PGBOXDB_*`, the data home is
+  `~/.pgboxdb`, the project file is `.pgboxdb.toml`, release assets are
+  `pgboxdb-<version>-<os>-<arch>.tar.gz`. Commands, flags, JSON output and exit
+  codes are otherwise unchanged; `pgboxdb --json version` reports
+  `pgboxdb_version`.
+- **Existing installations are never forked or lost.** When databases from
+  before the rename exist, `pgboxdb` refuses to create a new, empty home beside
+  them and points at `pgboxdb migrate`: a dry run by default, one atomic rename
+  of the data home with `--apply`, copies of the project file and Git identity
+  files under their new names, and `--rollback`. Nothing is deleted.
+  Previous environment variables, project files and hook entries are not read
+  as aliases; they are reported, and `pgboxdb agent install`, `pgboxdb git
+  init` and `pgboxdb git install-shell` replace the previous entries in place.
+  Guide: docs/pgboxdb/local-dev/upgrading.md.
+- **Docker:** the image runs as user `pgboxdb` (uid 10001, unchanged) with its
+  volume at `/var/lib/pgboxdb`. A volume from the previous image works when
+  mounted there.
+
+## Install
+
+```sh
+curl -fsSL https://pgboxdb.com/install | sh
+pgboxdb run                             # a ready `app` database in one step
+pgboxdb branch app agent-001            # a disposable 2-hour branch
+pgboxdb agent exec -- bin/rails test    # any command in a branch of its own
+```
+
+Or download the tarball for your platform below, verify its SHA-256 against
+`checksums.txt`, and extract it; `bin/pgboxdb` is relocatable.
+
+## Platforms
+
+| Platform | Artifact |
+|---|---|
+| Linux x86-64 | `pgboxdb-<version>-linux-amd64.tar.gz` |
+| Linux arm64  | `pgboxdb-<version>-linux-arm64.tar.gz` |
+| macOS arm64  | `pgboxdb-<version>-darwin-arm64.tar.gz` |
+
+XML functions and ICU collations use the host's libxml2 and ICU when present.
+
+## Verified in this release
+
+See `docs/pgboxdb/local-dev/validation-report.md` for the full matrix (unit,
+lifecycle, SQL, compatibility vs PostgreSQL 18.6, crash recovery, isolation,
+storage, concurrency, stress, and the application fixtures) and the
+GO / NO-GO / BLOCKED decision.
+
+## Earlier releases (as PGX)
+
+PGBoxDB was named PGX before v0.2.0. The notes of those releases are kept
+as they were published; their commands, package and paths are the previous
+names (see docs/pgboxdb/local-dev/upgrading.md).
+
+### PGX v0.1.3 — One Git Branch, One Isolated Postgres
 
 `pgx git` gives every Git branch, in every worktree, its own copy-on-write
 database, cloned from the latest validated snapshot of your main database.
@@ -47,7 +116,7 @@ Measured on macOS arm64 (M1 Pro, APFS): a branch database clone takes
 34–72 ms, `git switch -c` including the hook 486–589 ms, switching to an
 existing branch 230–245 ms, and `pgx git sync` on an idle main 204–292 ms.
 
-### Known limitations
+#### Known limitations
 
 1. Cursor's terminal keeps the database from the start of the session after
    a branch switch; start a new session or use `pgx git exec`.
@@ -58,7 +127,7 @@ existing branch 230–245 ms, and `pgx git sync` on an idle main 204–292 ms.
 4. Copying a database that is in use needs `pg_dump`/`pg_restore`.
 5. The fish integration is not tested yet.
 
-## PGX v0.1.2 — Every AI Subagent Gets Its Own Postgres
+### PGX v0.1.2 — Every AI Subagent Gets Its Own Postgres
 
 0.1.1 gave every Claude Code **session** its own branch. Subagents launched
 from that session inherited the session's identity and therefore its
@@ -99,7 +168,7 @@ the model to do:
   work and says why (session isolation only, subagents would share the
   parent's branch), instead of promising isolation it cannot deliver.
 
-### Verified with real Claude Code subagents (2026-10-26)
+#### Verified with real Claude Code subagents (2026-10-26)
 
 - 3 and then **20 concurrent subagents**, no ids, no manual provisioning:
   **20/20** branches created by `SubagentStart`, **20/20** workloads in their
@@ -119,7 +188,7 @@ the model to do:
   minutes after the kill.
 - Evidence and method: `docs/pgx/local-dev/validation/2026-10-26-subagent-isolation-live.md`.
 
-### Known limitations
+#### Known limitations
 
 1. Claude Code evaluates permission rules, and in auto mode its classifier,
    on the **rewritten** Bash command. Some subagent commands may therefore
@@ -139,7 +208,7 @@ the model to do:
    release; the hooks and `pgx agent exec --agent` are available there, and
    session-level isolation is unchanged.
 
-## What is new in 0.1.1: one Skill, every agent gets its own Postgres
+### What is new in 0.1.1: one Skill, every agent gets its own Postgres
 
 ```sh
 npx skills add pgrundev/pgx --skill pgx     # the PGX Agent Skill for Claude Code, Cursor and Codex
@@ -161,32 +230,3 @@ and never written.
   (`schema_migrations`, `django_migrations`, `_prisma_migrations`, …).
 - `pgx drop` removes the TTL record; `--json` keeps key order.
 - Guide and compatibility matrix: `docs/pgx/local-dev/agents.md`.
-
-## Install
-
-```sh
-curl -fsSL https://pgx.dev/install | sh
-pgx run                             # a ready `app` database in one step
-pgx branch app agent-001            # a disposable 2-hour branch
-pgx agent exec -- bin/rails test    # any command in a branch of its own
-```
-
-Or download the tarball for your platform below, verify its SHA-256 against
-`checksums.txt`, and extract it; `bin/pgx` is relocatable.
-
-## Platforms
-
-| Platform | Artifact |
-|---|---|
-| Linux x86-64 | `pgx-<version>-linux-amd64.tar.gz` |
-| Linux arm64  | `pgx-<version>-linux-arm64.tar.gz` |
-| macOS arm64  | `pgx-<version>-darwin-arm64.tar.gz` |
-
-XML functions and ICU collations use the host's libxml2 and ICU when present.
-
-## Verified in this release
-
-See `docs/pgx/local-dev/validation-report.md` for the full matrix (unit,
-lifecycle, SQL, compatibility vs PostgreSQL 18.6, crash recovery, isolation,
-storage, concurrency, stress, and the application fixtures) and the
-GO / NO-GO / BLOCKED decision.

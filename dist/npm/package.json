@@ -1,19 +1,18 @@
 {
-  "name": "pgxdb",
+  "name": "pgboxdb",
   "version": "0.1.3",
-  "description": "PGX: a local, disposable, PostgreSQL-compatible runtime. `npx pgxdb` installs the native binary and starts a database.",
+  "description": "PGBoxDB: a lightweight Postgres-compatible database runtime for AI agents. `npx pgboxdb` installs the native binary and starts a local, disposable database.",
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pgrundev/pgx.git",
+    "url": "git+https://github.com/pgrundev/pgboxdb.git",
     "directory": "dist/npm"
   },
-  "homepage": "https://github.com/pgrundev/pgx#readme",
-  "bugs": "https://github.com/pgrundev/pgx/issues",
-  "keywords": ["postgres", "postgresql", "database", "pgx", "local", "ephemeral", "branching", "agents", "testing"],
+  "homepage": "https://pgboxdb.com",
+  "bugs": "https://github.com/pgrundev/pgboxdb/issues",
+  "keywords": ["postgres", "postgresql", "database", "pgboxdb", "local", "ephemeral", "branching", "agents", "testing"],
   "bin": {
-    "pgxdb": "bin/pgxdb.js",
-    "pgx": "bin/pgxdb.js"
+    "pgboxdb": "bin/pgboxdb.js"
   },
   "files": ["bin/", "lib/", "README.md"],
   "engines": { "node": ">=18" },

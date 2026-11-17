@@ -1,13 +1,13 @@
 # Application fixtures
 
-Each fixture connects a real driver to a database on the assembled PGX
+Each fixture connects a real driver to a database on the assembled PGBoxDB
 distribution and exercises the operations that matter for that stack. The
-orchestrator creates a database with `pgx`, hands the fixture its
+orchestrator creates a database with `pgboxdb`, hands the fixture its
 `DATABASE_URL`, runs it, and drops the database.
 
 ```sh
-PGX_DIST=<prefix> tests/apps/run_all.sh            # all five
-PGX_DIST=<prefix> tests/apps/run_all.sh rails node # a subset
+PGBOXDB_DIST=<prefix> tests/apps/run_all.sh            # all five
+PGBOXDB_DIST=<prefix> tests/apps/run_all.sh rails node # a subset
 ```
 
 | Fixture | Driver | Exercises |

@@ -1,8 +1,8 @@
 name: Publish plugin repository
 # Publishes the Claude Code plugin package to the lightweight repository
-# github.com/pgrundev/pgx-plugin: what `claude plugin marketplace add
-# pgrundev/pgx-plugin` and Anthropic's plugin directory read. The tree is
-# assembled by `plugins/sync.sh --standalone` (plugins/pgx + LICENSE +
+# github.com/pgrundev/pgboxdb-plugin: what `claude plugin marketplace add
+# pgrundev/pgboxdb-plugin` and Anthropic's plugin directory read. The tree is
+# assembled by `plugins/sync.sh --standalone` (plugins/pgboxdb + LICENSE +
 # plugins/standalone) so the standalone repository is always exactly the
 # canonical plugin; nothing is edited there by hand.
 #
@@ -10,20 +10,20 @@ name: Publish plugin repository
 #   pull_request (plugin inputs changed)  assemble, validate, report drift; never publishes
 #   workflow_dispatch                     dry_run=true (default) reports; dry_run=false publishes
 #
-# Guards: runs only in pgrundev/pgx and publishes only from main (never a
+# Guards: runs only in pgrundev/pgboxdb and publishes only from main (never a
 # feature branch, never a fork); nothing is pushed unless the assembled tree
 # passes `claude plugin validate --strict` and the directory profile; commits
 # are regular fast-forward pushes (no force); the publish job runs in the
 # `plugin-publish` environment, so required reviewers can be added there.
-# pgx-plugin never pushes back here, so there is no synchronization loop.
+# pgboxdb-plugin never pushes back here, so there is no synchronization loop.
 #
 # Authentication (publish job only). The token is minted per run, scoped to
-# pgrundev/pgx-plugin, and never printed:
-#   1. GitHub App (preferred): repository secrets PGX_PLUGIN_APP_ID and
-#      PGX_PLUGIN_APP_PRIVATE_KEY for an app installed on pgrundev/pgx-plugin
+# pgrundev/pgboxdb-plugin, and never printed:
+#   1. GitHub App (preferred): repository secrets PGBOXDB_PLUGIN_APP_ID and
+#      PGBOXDB_PLUGIN_APP_PRIVATE_KEY for an app installed on pgrundev/pgboxdb-plugin
 #      with "Contents: Read and write" and nothing else.
-#   2. Deploy key: repository secret PGX_PLUGIN_DEPLOY_KEY, the private half of
-#      a write-enabled deploy key registered on pgrundev/pgx-plugin.
+#   2. Deploy key: repository secret PGBOXDB_PLUGIN_DEPLOY_KEY, the private half of
+#      a write-enabled deploy key registered on pgrundev/pgboxdb-plugin.
 #   With neither configured the publish job stops at the authentication step
 #   and prints the setup instructions; nothing is published. No personal
 #   access token is used.
@@ -31,20 +31,20 @@ on:
   push:
     branches: [main]
     paths:
-      - "skills/pgx/**"
+      - "skills/pgboxdb/**"
       - "plugins/**"
       - "LICENSE"
       - ".github/workflows/publish-plugin.yml"
   pull_request:
     paths:
-      - "skills/pgx/**"
+      - "skills/pgboxdb/**"
       - "plugins/**"
       - "LICENSE"
       - ".github/workflows/publish-plugin.yml"
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Assemble, validate and report drift only (no push to pgx-plugin)
+        description: Assemble, validate and report drift only (no push to pgboxdb-plugin)
         type: boolean
         default: true
 permissions:
@@ -53,7 +53,7 @@ concurrency:
   group: publish-plugin
   cancel-in-progress: false
 env:
-  STANDALONE_REPO: pgrundev/pgx-plugin
+  STANDALONE_REPO: pgrundev/pgboxdb-plugin
   CLAUDE_CODE_VERSION: 2.1.311
 jobs:
   assemble:
@@ -75,16 +75,16 @@ jobs:
       - name: The plugin copy of the skill is the canonical skill
         run: plugins/sync.sh --check
       - name: Assemble the standalone tree
-        run: plugins/sync.sh --standalone "$RUNNER_TEMP/pgx-plugin"
+        run: plugins/sync.sh --standalone "$RUNNER_TEMP/pgboxdb-plugin"
       - name: Validate the assembled tree (strict, then the directory profile)
         run: |
-          claude plugin validate --strict "$RUNNER_TEMP/pgx-plugin"
-          claude plugin validate --profile directory "$RUNNER_TEMP/pgx-plugin"
+          claude plugin validate --strict "$RUNNER_TEMP/pgboxdb-plugin"
+          claude plugin validate --profile directory "$RUNNER_TEMP/pgboxdb-plugin"
       - name: Plugin metadata
         id: meta
         run: |
-          v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$RUNNER_TEMP/pgx-plugin/.claude-plugin/plugin.json")
-          s=$(grep -E '^  version: "' "$RUNNER_TEMP/pgx-plugin/skills/pgx/SKILL.md" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          v=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$RUNNER_TEMP/pgboxdb-plugin/.claude-plugin/plugin.json")
+          s=$(grep -E '^  version: "' "$RUNNER_TEMP/pgboxdb-plugin/skills/pgboxdb/SKILL.md" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           [ "$v" = "$s" ] || { echo "::error::plugin.json version $v != SKILL.md metadata.version $s" >&2; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "plugin version $v"
@@ -94,7 +94,7 @@ jobs:
           set -eu
           if git clone -q --depth 1 "https://github.com/$STANDALONE_REPO.git" "$RUNNER_TEMP/published" 2>/dev/null \
              && [ -n "$(ls -A "$RUNNER_TEMP/published" | grep -v '^\.git$')" ]; then
-            if diff -r --exclude=.git "$RUNNER_TEMP/pgx-plugin" "$RUNNER_TEMP/published" > "$RUNNER_TEMP/drift.txt" 2>&1; then
+            if diff -r --exclude=.git "$RUNNER_TEMP/pgboxdb-plugin" "$RUNNER_TEMP/published" > "$RUNNER_TEMP/drift.txt" 2>&1; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
               echo "$STANDALONE_REPO already matches the canonical plugin" | tee -a "$GITHUB_STEP_SUMMARY"
             else
@@ -107,15 +107,15 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: pgx-plugin
-          path: ${{ runner.temp }}/pgx-plugin
+          name: pgboxdb-plugin
+          path: ${{ runner.temp }}/pgboxdb-plugin
           include-hidden-files: true
           if-no-files-found: error
   publish:
-    name: Push to pgrundev/pgx-plugin
+    name: Push to pgrundev/pgboxdb-plugin
     needs: assemble
     if: >-
-      github.repository == 'pgrundev/pgx' &&
+      github.repository == 'pgrundev/pgboxdb' &&
       github.ref == 'refs/heads/main' &&
       github.event_name != 'pull_request' &&
       needs.assemble.outputs.changed == 'true' &&
@@ -123,27 +123,27 @@ jobs:
     runs-on: ubuntu-24.04
     environment: plugin-publish
     env:
-      HAS_APP: ${{ secrets.PGX_PLUGIN_APP_ID != '' && secrets.PGX_PLUGIN_APP_PRIVATE_KEY != '' }}
-      HAS_DEPLOY_KEY: ${{ secrets.PGX_PLUGIN_DEPLOY_KEY != '' }}
+      HAS_APP: ${{ secrets.PGBOXDB_PLUGIN_APP_ID != '' && secrets.PGBOXDB_PLUGIN_APP_PRIVATE_KEY != '' }}
+      HAS_DEPLOY_KEY: ${{ secrets.PGBOXDB_PLUGIN_DEPLOY_KEY != '' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: pgx-plugin
-          path: ${{ runner.temp }}/pgx-plugin
-      - name: Mint a GitHub App installation token (scoped to pgx-plugin)
+          name: pgboxdb-plugin
+          path: ${{ runner.temp }}/pgboxdb-plugin
+      - name: Mint a GitHub App installation token (scoped to pgboxdb-plugin)
         if: env.HAS_APP == 'true'
         id: app
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.PGX_PLUGIN_APP_ID }}
-          private-key: ${{ secrets.PGX_PLUGIN_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.PGBOXDB_PLUGIN_APP_ID }}
+          private-key: ${{ secrets.PGBOXDB_PLUGIN_APP_PRIVATE_KEY }}
           owner: pgrundev
-          repositories: pgx-plugin
+          repositories: pgboxdb-plugin
           permission-contents: write
       - name: Configure the credential
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
-          DEPLOY_KEY: ${{ secrets.PGX_PLUGIN_DEPLOY_KEY }}
+          DEPLOY_KEY: ${{ secrets.PGBOXDB_PLUGIN_DEPLOY_KEY }}
         run: |
           set -eu
           if [ "$HAS_APP" = true ] && [ -n "$APP_TOKEN" ]; then
@@ -152,21 +152,21 @@ jobs:
             echo "auth: GitHub App installation token"
           elif [ "$HAS_DEPLOY_KEY" = true ]; then
             mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/pgx_plugin_deploy && chmod 600 ~/.ssh/pgx_plugin_deploy
+            printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/pgboxdb_plugin_deploy && chmod 600 ~/.ssh/pgboxdb_plugin_deploy
             ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
-            echo "GIT_SSH_COMMAND=ssh -i ~/.ssh/pgx_plugin_deploy -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+            echo "GIT_SSH_COMMAND=ssh -i ~/.ssh/pgboxdb_plugin_deploy -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
             echo "REMOTE=git@github.com:$STANDALONE_REPO.git" >> "$GITHUB_ENV"
             echo "auth: deploy key"
           else
             cat >&2 <<'MSG'
-          ::error::No credential for pgrundev/pgx-plugin is configured, so nothing was published.
-          Configure ONE of these in pgrundev/pgx (Settings → Secrets and variables → Actions):
+          ::error::No credential for pgrundev/pgboxdb-plugin is configured, so nothing was published.
+          Configure ONE of these in pgrundev/pgboxdb (Settings → Secrets and variables → Actions):
             GitHub App (preferred): create an app under the pgrundev organization with repository
-              permission "Contents: Read and write" only, install it on pgrundev/pgx-plugin only,
-              and add secrets PGX_PLUGIN_APP_ID (the app id) and PGX_PLUGIN_APP_PRIVATE_KEY (a PEM).
-            Deploy key: ssh-keygen -t ed25519 -f pgx_plugin_deploy -N '' -C publish-plugin;
-              add pgx_plugin_deploy.pub to pgrundev/pgx-plugin (Settings → Deploy keys, allow write)
-              and the private file as secret PGX_PLUGIN_DEPLOY_KEY.
+              permission "Contents: Read and write" only, install it on pgrundev/pgboxdb-plugin only,
+              and add secrets PGBOXDB_PLUGIN_APP_ID (the app id) and PGBOXDB_PLUGIN_APP_PRIVATE_KEY (a PEM).
+            Deploy key: ssh-keygen -t ed25519 -f pgboxdb_plugin_deploy -N '' -C publish-plugin;
+              add pgboxdb_plugin_deploy.pub to pgrundev/pgboxdb-plugin (Settings → Deploy keys, allow write)
+              and the private file as secret PGBOXDB_PLUGIN_DEPLOY_KEY.
           Then re-run this workflow (workflow_dispatch with dry_run=false, or the next push to main).
           MSG
             exit 1
@@ -177,15 +177,15 @@ jobs:
           git clone "$REMOTE" "$RUNNER_TEMP/published"
           cd "$RUNNER_TEMP/published"
           git checkout -q main 2>/dev/null || git checkout -q -b main
-          git config user.name "pgx-plugin-publisher[bot]"
-          git config user.email "pgx-plugin-publisher[bot]@users.noreply.github.com"
+          git config user.name "pgboxdb-plugin-publisher[bot]"
+          git config user.email "pgboxdb-plugin-publisher[bot]@users.noreply.github.com"
       - name: Replace the tree with the assembled plugin
         run: |
           set -eu
           cd "$RUNNER_TEMP/published"
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -R "$RUNNER_TEMP/pgx-plugin/." .
-          chmod +x skills/pgx/scripts/*.sh
+          cp -R "$RUNNER_TEMP/pgboxdb-plugin/." .
+          chmod +x skills/pgboxdb/scripts/*.sh
           git add -A
           if git diff --cached --quiet; then echo "nothing to publish"; echo "PUBLISH=no" >> "$GITHUB_ENV"; exit 0; fi
           echo "PUBLISH=yes" >> "$GITHUB_ENV"
@@ -198,15 +198,15 @@ jobs:
         run: |
           set -eu
           cd "$RUNNER_TEMP/published"
-          git commit -q -m "sync: plugin ${VERSION} from pgrundev/pgx@${SRC_SHA:0:12}" \
-            -m "Generated by plugins/sync.sh --standalone in pgrundev/pgx (.github/workflows/publish-plugin.yml)." \
-            -m "Source: https://github.com/pgrundev/pgx/commit/${SRC_SHA}"
+          git commit -q -m "sync: plugin ${VERSION} from pgrundev/pgboxdb@${SRC_SHA:0:12}" \
+            -m "Generated by plugins/sync.sh --standalone in pgrundev/pgboxdb (.github/workflows/publish-plugin.yml)." \
+            -m "Source: https://github.com/pgrundev/pgboxdb/commit/${SRC_SHA}"
           git push origin HEAD:main
-          tag="pgx--v${VERSION}"
+          tag="pgboxdb--v${VERSION}"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
             echo "tag $tag already exists; left as is"
           else
-            git tag -a "$tag" -m "pgx plugin ${VERSION} (pgrundev/pgx@${SRC_SHA:0:12})"
+            git tag -a "$tag" -m "pgboxdb plugin ${VERSION} (pgrundev/pgboxdb@${SRC_SHA:0:12})"
             git push origin "refs/tags/$tag"
             echo "tagged $tag"
           fi

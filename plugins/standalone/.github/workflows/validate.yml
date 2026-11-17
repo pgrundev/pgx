@@ -1,5 +1,5 @@
 name: Validate plugin
-# This repository is generated from github.com/pgrundev/pgx (plugins/pgx +
+# This repository is generated from github.com/pgrundev/pgboxdb (plugins/pgboxdb +
 # LICENSE + plugins/standalone, assembled by plugins/sync.sh --standalone and
 # published by that repository's publish-plugin workflow). This workflow
 # proves the published tree is a valid, installable Claude Code plugin and
@@ -34,7 +34,7 @@ jobs:
         run: |
           set -eu
           test -f .claude-plugin/plugin.json && test -f .claude-plugin/marketplace.json
-          test -f skills/pgx/SKILL.md && test -f README.md && test -f LICENSE
+          test -f skills/pgboxdb/SKILL.md && test -f README.md && test -f LICENSE
           for d in hooks bin commands agents .mcp.json .lsp.json settings.json monitors workflows package.json .gitattributes .gitmodules; do
             [ ! -e "$d" ] || { echo "the plugin must not ship $d" >&2; exit 1; }
           done
@@ -44,60 +44,60 @@ jobs:
           big=$(git ls-files -z | xargs -0 -I{} find {} -type f -size +256k); [ -z "$big" ] || { echo "files over 256 KiB: $big" >&2; exit 1; }
           depth=$(git ls-files | awk -F/ '{ if (NF > m) m = NF } END { print m }'); [ "$depth" -le 6 ]
           kb=$(du -sk --exclude=.git . | cut -f1); echo "tree: $n files, $kb KB, max depth $depth"; [ "$kb" -lt 1024 ]
-          test -x skills/pgx/scripts/check-pgx.sh && test -x skills/pgx/scripts/detect-project.sh
-          grep -q 'CLAUDE_PLUGIN_ROOT}/skills/pgx/scripts/' skills/pgx/SKILL.md
+          test -x skills/pgboxdb/scripts/check-pgboxdb.sh && test -x skills/pgboxdb/scripts/detect-project.sh
+          grep -q 'CLAUDE_PLUGIN_ROOT}/skills/pgboxdb/scripts/' skills/pgboxdb/SKILL.md
           pv=$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])')
-          sv=$(grep -E '^  version: "' skills/pgx/SKILL.md | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          sv=$(grep -E '^  version: "' skills/pgboxdb/SKILL.md | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           [ "$pv" = "$sv" ] || { echo "plugin.json version $pv != SKILL.md metadata.version $sv" >&2; exit 1; }
           python3 - <<'PY'
           import json
           p = json.load(open(".claude-plugin/plugin.json")); m = json.load(open(".claude-plugin/marketplace.json"))
-          assert p["name"] == "pgx" and p["displayName"] and p["license"] == "AGPL-3.0" and p["author"]["name"], p
-          e = [x for x in m["plugins"] if x["name"] == "pgx"]
-          assert m["name"] == "pgx-plugin" and len(e) == 1 and e[0]["source"] == "./" and "version" not in e[0], m
+          assert p["name"] == "pgboxdb" and p["displayName"] and p["license"] == "AGPL-3.0" and p["author"]["name"], p
+          e = [x for x in m["plugins"] if x["name"] == "pgboxdb"]
+          assert m["name"] == "pgboxdb-plugin" and len(e) == 1 and e[0]["source"] == "./" and "version" not in e[0], m
           PY
           # (the plugin files only: this workflow carries the patterns it looks for)
           ! grep -rnE 'postgres(ql)?://[^*$"<` ]+:[^*$"<` ]+@' --exclude-dir=.git --exclude-dir=.github . | grep -v '\.\.\.' | grep -v '…' | grep -v ':\*\*\*@' || { echo "credentialed URL" >&2; exit 1; }
           ! grep -rnE '(sk-ant-|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|npm_[A-Za-z0-9]{30}|-----BEGIN [A-Z ]*PRIVATE KEY)' --exclude-dir=.git --exclude-dir=.github . || { echo "secret-like token" >&2; exit 1; }
       - name: Helper scripts execute
         run: |
-          bash skills/pgx/scripts/detect-project.sh . | python3 -c 'import json,sys; json.load(sys.stdin)'
-          # exits 3 (pgx missing) on this runner; the output must still be one JSON line
-          bash skills/pgx/scripts/check-pgx.sh | python3 -c 'import json,sys; json.load(sys.stdin)' || true
+          bash skills/pgboxdb/scripts/detect-project.sh . | python3 -c 'import json,sys; json.load(sys.stdin)'
+          # exits 3 (pgboxdb missing) on this runner; the output must still be one JSON line
+          bash skills/pgboxdb/scripts/check-pgboxdb.sh | python3 -c 'import json,sys; json.load(sys.stdin)' || true
       - name: Install cycle from this checkout as a marketplace, in an isolated configuration
         run: |
           set -eu
           export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/cfg"; mkdir -p "$CLAUDE_CONFIG_DIR"
           claude plugin marketplace add "$PWD" --json | tail -1 | grep -q '"outcome":"ok"'
-          claude plugin install pgx@pgx-plugin --json | tail -1 | grep -q '"outcome":"ok"'
-          claude plugin list --json | python3 -c 'import json,sys; l=json.load(sys.stdin); e=[p for p in l if p["id"]=="pgx@pgx-plugin"]; assert len(e)==1 and e[0]["enabled"], l; print("installed", e[0]["version"])'
-          claude plugin details pgx | tee "$RUNNER_TEMP/details.txt"
-          grep -qE 'Skills \(1\) +pgx' "$RUNNER_TEMP/details.txt"
+          claude plugin install pgboxdb@pgboxdb-plugin --json | tail -1 | grep -q '"outcome":"ok"'
+          claude plugin list --json | python3 -c 'import json,sys; l=json.load(sys.stdin); e=[p for p in l if p["id"]=="pgboxdb@pgboxdb-plugin"]; assert len(e)==1 and e[0]["enabled"], l; print("installed", e[0]["version"])'
+          claude plugin details pgboxdb | tee "$RUNNER_TEMP/details.txt"
+          grep -qE 'Skills \(1\) +pgboxdb' "$RUNNER_TEMP/details.txt"
           grep -q 'Hooks (0)' "$RUNNER_TEMP/details.txt" && grep -q 'MCP servers (0)' "$RUNNER_TEMP/details.txt"
-          claude plugin uninstall pgx@pgx-plugin --json | tail -1 | grep -q '"outcome":"ok"'
-          claude plugin marketplace remove pgx-plugin --json | tail -1 | grep -q '"outcome":"ok"'
+          claude plugin uninstall pgboxdb@pgboxdb-plugin --json | tail -1 | grep -q '"outcome":"ok"'
+          claude plugin marketplace remove pgboxdb-plugin --json | tail -1 | grep -q '"outcome":"ok"'
       - name: Secret scan (gitleaks)
         run: |
           curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
           ./gitleaks dir . --no-banner --redact
   drift:
-    name: No drift from the canonical plugin in pgrundev/pgx
+    name: No drift from the canonical plugin in pgrundev/pgboxdb
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with: { path: standalone }
       - uses: actions/checkout@v4
         with:
-          repository: pgrundev/pgx
+          repository: pgrundev/pgboxdb
           ref: main
           path: canonical
           sparse-checkout: |
             plugins
-            skills/pgx
+            skills/pgboxdb
       - name: Compare with plugins/sync.sh --standalone
         run: |
           # The old sync.sh ignored unknown arguments and exited 0: require the mode, so
           # this job cannot pass vacuously against a main that lacks it.
           grep -q -- '--check-standalone' canonical/plugins/sync.sh \
-            || { echo "::error::pgrundev/pgx main: plugins/sync.sh has no --check-standalone mode (not merged yet?)" >&2; exit 1; }
+            || { echo "::error::pgrundev/pgboxdb main: plugins/sync.sh has no --check-standalone mode (not merged yet?)" >&2; exit 1; }
           canonical/plugins/sync.sh --check-standalone "$PWD/standalone"

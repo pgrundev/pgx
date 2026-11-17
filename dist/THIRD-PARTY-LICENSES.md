@@ -1,10 +1,10 @@
-# Third-party licenses in the PGX distribution
+# Third-party licenses in the PGBoxDB distribution
 
-PGX itself (the `pgx` CLI and the pgrust-based engine) is licensed under the
+PGBoxDB itself (the `pgboxdb` CLI and the pgrust-based engine) is licensed under the
 GNU Affero General Public License v3.0 (`LICENSE`). The distribution also
 contains the following third-party material.
 
-## PostgreSQL (share/timezonesets, share/tsearch_data, share/extension/plpgsql*, share/pgx/base-cluster)
+## PostgreSQL (share/timezonesets, share/tsearch_data, share/extension/plpgsql*, share/pgboxdb/base-cluster)
 
 The timezone abbreviation sets, text-search data files, the plpgsql extension
 files and the pristine base cluster are produced by or copied from PostgreSQL
@@ -46,12 +46,12 @@ Database (tzdata), which is in the public domain.
 Distributed with PostgreSQL under the BSD license of the Snowball project
 (Copyright (c) 2001, Dr Martin Porter; Copyright (c) 2002, Richard Boulton).
 
-## Rust crates (bin/postgres, bin/pgx)
+## Rust crates (bin/postgres, bin/pgboxdb)
 
 The binaries statically link Rust crates from crates.io under their own
 permissive licenses (MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0, Zlib).
 `cargo metadata` on the source tree at the recorded `engine_commit` lists
-each crate and its license; the source tree is https://github.com/pgrundev/pgx.
+each crate and its license; the source tree is https://github.com/pgrundev/pgboxdb.
 
 ## Runtime libraries not included
 

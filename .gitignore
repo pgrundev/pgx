@@ -53,9 +53,9 @@ __pycache__/
 .worktrees/
 .superpowers/
 
-# black-box suite logs and scratch clusters (key artifacts are copied to docs/pgx/local-dev/validation/)
+# black-box suite logs and scratch clusters (key artifacts are copied to docs/pgboxdb/local-dev/validation/)
 tests/results/
-dist/pgx.dev/.wrangler/
+dist/pgboxdb.com/.wrangler/
 
 # npm wrapper (dist/npm): installed deps, packed tarballs, LICENSE copied at publish time
 dist/npm/node_modules/

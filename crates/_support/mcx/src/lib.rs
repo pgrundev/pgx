@@ -784,7 +784,7 @@ pub mod global_footprint {
     }
 }
 
-/// Enforced memory limits (pgrust-only; PGX shared runtime).
+/// Enforced memory limits (pgrust-only; PGBoxDB shared runtime).
 ///
 /// Three independent ceilings on memory-context bytes, all off at 0:
 ///
@@ -1341,7 +1341,7 @@ pub fn session_root_mut(ctx: MemoryContext) -> &'static mut MemoryContext {
 /// owning thread. `MemoryContext` is `!Sync`, so those handles cannot be
 /// sent to another thread in safe code, and no `unsafe impl Send/Sync` type
 /// in the server carries one (the cross-thread caches hold global-heap
-/// copies, never context handles; audited for docs/pgx/lifecycle-memory.md).
+/// copies, never context handles; audited for docs/pgboxdb/lifecycle-memory.md).
 /// After `JoinHandle::join` returns, the owning thread has finished,
 /// thread-local destructors included, so no code that could hold a handle
 /// is left. The join is also the happens-before edge for the non-atomic

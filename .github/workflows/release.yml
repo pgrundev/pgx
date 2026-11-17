@@ -19,10 +19,26 @@ jobs:
   # these public release artifacts.
   guard:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      # One place decides the version. On a tag push it is the tag without the
+      # v, and it must match the crate and npm versions. On workflow_dispatch
+      # it is the input (GITHUB_REF_NAME is the branch then, which used to be
+      # glued onto the version: "main0.2.0").
+      - name: Resolve the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: echo "version=$(dist/release/version.sh "$GITHUB_EVENT_NAME" "$GITHUB_REF_NAME" "$INPUT_VERSION")" >> "$GITHUB_OUTPUT"
+      # Only a tag push creates a release, so only a tag must be on main. A
+      # manual run (workflow_dispatch) builds and verifies the artifacts and
+      # dry-runs the draft job without creating anything, so it can validate
+      # a branch before it merges.
       - name: Tag must be an ancestor of origin/main
+        if: github.event_name == 'push'
         run: |
           git fetch origin main --depth=0 || git fetch origin main
           if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
@@ -50,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Determine version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}${{ github.event.inputs.version && format('{0}', github.event.inputs.version) || '' }}" >> "$GITHUB_ENV"
+        run: echo "VERSION=${{ needs.guard.outputs.version }}" >> "$GITHUB_ENV"
       - name: Install PostgreSQL 18 and RE2 (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -71,63 +87,98 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/pgx-static-re2
+          path: ${{ runner.temp }}/pgboxdb-static-re2
           key: static-re2-macos-${{ runner.arch }}-absl20260817.0-re2-2025-11-05-v1
       - name: Build static re2+abseil prefix (macOS)
         if: runner.os == 'macOS'
         run: |
-          PREFIX="$(PGX_RE2_PREFIX="$RUNNER_TEMP/pgx-static-re2" dist/macos/build-static-re2.sh)"
+          PREFIX="$(PGBOXDB_RE2_PREFIX="$RUNNER_TEMP/pgboxdb-static-re2" dist/macos/build-static-re2.sh)"
           echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: "1.96.0" }
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --locked --bin postgres --bin pgx
+        run: cargo build --release --locked --bin postgres --bin pgboxdb
       - name: Assemble
         run: dist/assemble.sh --out "$RUNNER_TEMP/rel" --version "$VERSION" --pg-bindir "$PG18_BINDIR"
       - name: Self-contained check (macOS — no non-system dylib deps)
         if: runner.os == 'macOS'
-        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgx-$VERSION-*")"
+        run: dist/test/macos_selfcontained_test.sh "$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgboxdb-$VERSION-*")"
       - name: Verify the packaged artifact (lifecycle suite)
         run: |
-          export PGX_DIST="$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgx-$VERSION-*")"
-          cargo test -p pgx --release --test lifecycle --test databases --test clone
+          export PGBOXDB_DIST="$(find "$RUNNER_TEMP/rel" -maxdepth 1 -type d -name "pgboxdb-$VERSION-*")"
+          cargo test -p pgboxdb --release --test lifecycle --test databases --test clone
       - uses: actions/upload-artifact@v4
         with:
-          name: pgx-${{ matrix.target }}
+          name: pgboxdb-${{ matrix.target }}
           path: |
             ${{ runner.temp }}/rel/*.tar.gz
             ${{ runner.temp }}/rel/*.tar.gz.sha256
+  # Creates the draft release, on a tag push only: a manual run builds and
+  # verifies the artifacts (kept as actions artifacts) but has no tag to
+  # attach a release to.
   draft:
-    needs: build
+    needs: [guard, build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
-        with: { path: artifacts }
-      - name: Drop the experimental darwin-amd64 build (actions artifact only, never a release asset)
-        # macOS on Intel is not supported until that artifact has been validated;
-        # publishing it would make `npx pgxdb` / install.sh pick it up blindly.
-        run: rm -rf artifacts/pgx-darwin-amd64
-      - name: Collect checksums
-        run: |
-          cd artifacts && find . -name '*.sha256' -exec cat {} \; > ../checksums.txt
-          cat ../checksums.txt
-      # The release notes live in the repository; without a checkout the
-      # action logged `Failed to read body_path "dist/release-notes.md"
-      # (ENOENT)` and published an empty body (v0.1.1 and the v0.1.2 draft,
-      # which was filled in by hand). Only that one file is needed.
-      - name: Check out the release notes
+      # Check out FIRST. actions/checkout cleans the workspace (`git clean
+      # -ffdx`), so when it ran after download-artifact it deleted artifacts/
+      # and checksums.txt, and the v0.1.3 draft was created with no assets.
+      # dist/test/release_workflow_test.rb replays this job to keep it so.
+      - name: Check out the release notes and the collect script
         uses: actions/checkout@v4
         with:
-          sparse-checkout: dist/release-notes.md
+          sparse-checkout: |
+            dist/release-notes.md
+            dist/release/collect.sh
           sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      # Drops the experimental darwin-amd64 build (an actions artifact only,
+      # never a release asset), requires and verifies every supported
+      # target's tarball and .sha256, and writes checksums.txt.
+      - name: Collect and verify the release assets
+        run: sh dist/release/collect.sh artifacts "$VERSION" checksums.txt
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          name: PGX ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          name: PGBoxDB ${{ github.ref_name }}
+          fail_on_unmatched_files: true
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.tar.gz.sha256
             checksums.txt
           body_path: dist/release-notes.md
+  # workflow_dispatch only: the draft job's steps on a real runner (real
+  # checkout, real download-artifact layout, collect.sh), then the files the
+  # release step would attach. Creates no release and no tag.
+  draft-dry-run:
+    needs: [guard, build]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - name: Check out the release notes and the collect script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            dist/release-notes.md
+            dist/release/collect.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Collect and verify the release assets
+        run: sh dist/release/collect.sh artifacts "$VERSION" checksums.txt
+      - name: Files the release step would attach
+        run: |
+          { find artifacts -type f \( -name '*.tar.gz' -o -name '*.tar.gz.sha256' \) | sort; ls checksums.txt; } > attach.txt
+          cat attach.txt
+          n=$(wc -l < attach.txt)
+          [ "$n" -eq 7 ] || { echo "::error::expected 7 release files, got $n"; exit 1; }
+          test -s dist/release-notes.md

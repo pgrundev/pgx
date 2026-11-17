@@ -2,7 +2,7 @@
 # PostgreSQL uses, and the valid case must go through.
 require_relative "compat_helper"
 
-class PgxCompat::ConstraintTest < PgxCompat::Case
+class PgboxdbCompat::ConstraintTest < PgboxdbCompat::Case
   category "CONSTRAINT"
 
   def test_not_null_violation_is_23502

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke-test a PACKAGED PGX distribution as an external developer would, on a
+# Smoke-test a PACKAGED PGBoxDB distribution as an external developer would, on a
 # clean host (no system PostgreSQL, no Homebrew RE2/abseil). Given the extracted
 # dist dir, it checks for missing/stray runtime libraries and runs the full
 # onboarding: run -> clone --ttl -> auto-expiry across a restart -> permanent
@@ -10,12 +10,12 @@ set -u
 DIST="${1:?usage: smoke_packaged.sh <extracted-dist-dir>}"
 OS="$(uname -s)"
 die() { echo "SMOKE FAIL: $*" >&2; exit 1; }
-PGX="$DIST/bin/pgx"; PG="$DIST/bin/postgres"
-[ -x "$PGX" ] && [ -x "$PG" ] || die "bin/pgx or bin/postgres missing"
+PGBOXDB_BIN="$DIST/bin/pgboxdb"; PG="$DIST/bin/postgres"
+[ -x "$PGBOXDB_BIN" ] && [ -x "$PG" ] || die "bin/pgboxdb or bin/postgres missing"
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/pgx-smoke.XXXXXX")"
-export PGX_HOME="$WORK/home" PGX_RUN_DIR="$WORK/run" PGX_TTL_INTERVAL=1
-trap '"$PGX" stop >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT INT TERM
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/pgboxdb-smoke.XXXXXX")"
+export PGBOXDB_HOME="$WORK/home" PGBOXDB_RUN_DIR="$WORK/run" PGBOXDB_TTL_INTERVAL=1
+trap '"$PGBOXDB_BIN" stop >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT INT TERM
 # Clean PATH: no system postgres/psql. Keep only base dirs.
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
@@ -38,16 +38,16 @@ command -v postgres >/dev/null 2>&1 && die "system postgres present on PATH"
 command -v initdb  >/dev/null 2>&1 && die "system initdb present on PATH"
 echo "ok: clean PATH"
 
-echo "## pgx run (fresh install) + clone --ttl + ls"
-"$PGX" run >/dev/null || { "$PGX" doctor || true; die "pgx run"; }
-one_engine=$(pgrep -f "$PGX_HOME/data" | wc -l | tr -d ' '); echo "engine procs: $one_engine"
-"$PGX" clone app test-001 --ttl 5s >/dev/null || die "clone --ttl"
-"$PGX" ls
-APP="$("$PGX" url app)"
+echo "## pgboxdb run (fresh install) + clone --ttl + ls"
+"$PGBOXDB_BIN" run >/dev/null || { "$PGBOXDB_BIN" doctor || true; die "pgboxdb run"; }
+one_engine=$(pgrep -f "$PGBOXDB_HOME/data" | wc -l | tr -d ' '); echo "engine procs: $one_engine"
+"$PGBOXDB_BIN" clone app test-001 --ttl 5s >/dev/null || die "clone --ttl"
+"$PGBOXDB_BIN" ls
+APP="$("$PGBOXDB_BIN" url app)"
 # RE2 linked at runtime + a real RE2 match; seed permanent data.
 RE2=$("$PG" --version >/dev/null 2>&1; true)
-"$DIST/bin/pgx" url app >/dev/null
-# use the engine's own psql-less path: pgx has no SQL exec, so use a tiny client via /usr/bin if present
+"$DIST/bin/pgboxdb" url app >/dev/null
+# use the engine's own psql-less path: pgboxdb has no SQL exec, so use a tiny client via /usr/bin if present
 if command -v psql >/dev/null 2>&1; then PSQL=psql; else PSQL=""; fi
 if [ -n "$PSQL" ]; then
   "$PSQL" "$APP" -v ON_ERROR_STOP=1 -c "CREATE TABLE keep(v int)" -c "INSERT INTO keep VALUES (42)" >/dev/null || die "seed"
@@ -59,18 +59,18 @@ else
 fi
 
 echo "## restart: TTL cleanup resumes, permanent data survives"
-"$PGX" stop >/dev/null || die "stop"
-"$PGX" run >/dev/null || die "pgx run #2"
-gone=no; i=0; while [ $i -lt 30 ]; do "$PGX" ls --json | grep -q '"test-001"' || { gone=yes; break; }; sleep 1; i=$((i+1)); done
+"$PGBOXDB_BIN" stop >/dev/null || die "stop"
+"$PGBOXDB_BIN" run >/dev/null || die "pgboxdb run #2"
+gone=no; i=0; while [ $i -lt 30 ]; do "$PGBOXDB_BIN" ls --json | grep -q '"test-001"' || { gone=yes; break; }; sleep 1; i=$((i+1)); done
 [ "$gone" = yes ] || die "test-001 did not auto-expire after restart"
-"$PGX" ls --json | grep -q '"app"' || die "permanent app missing after restart"
-if [ -n "$PSQL" ]; then v=$("$PSQL" "$("$PGX" url app)" -At -c "SELECT v FROM keep"); [ "$v" = 42 ] || die "data lost across restart (got '$v')"; echo "ok: app data survived restart (v=$v)"; fi
+"$PGBOXDB_BIN" ls --json | grep -q '"app"' || die "permanent app missing after restart"
+if [ -n "$PSQL" ]; then v=$("$PSQL" "$("$PGBOXDB_BIN" url app)" -At -c "SELECT v FROM keep"); [ "$v" = 42 ] || die "data lost across restart (got '$v')"; echo "ok: app data survived restart (v=$v)"; fi
 echo "ok: test-001 auto-expired (~${i}s), app survived"
 
 echo "## clean shutdown / no leaked processes or fds"
-"$PGX" stop >/dev/null || die "final stop"
+"$PGBOXDB_BIN" stop >/dev/null || die "final stop"
 sleep 1
-left=$(pgrep -f "$PGX_HOME/data" | wc -l | tr -d ' ')
+left=$(pgrep -f "$PGBOXDB_HOME/data" | wc -l | tr -d ' ')
 [ "$left" = 0 ] || die "$left engine process(es) left after stop"
 echo "ok: 0 engine processes after stop"
 echo "SMOKE PASS ($OS $(uname -m))"

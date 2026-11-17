@@ -1,9 +1,9 @@
 # Brief §10 — two or more connections: MVCC visibility, row locks, deadlock
-# detection. Every wait runs on a thread with a timeout so a PGX hang fails
+# detection. Every wait runs on a thread with a timeout so a PGBoxDB hang fails
 # the test instead of hanging the suite.
 require_relative "compat_helper"
 
-class PgxCompat::ConcurrencyTest < PgxCompat::Case
+class PgboxdbCompat::ConcurrencyTest < PgboxdbCompat::Case
   category "MVCC"
 
   # 1. A's uncommitted UPDATE is invisible to B; visible once A commits.

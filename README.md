@@ -49,7 +49,7 @@ npx pgboxdb@latest
 <!-- skills.sh badge: add [![skills.sh](https://skills.sh/b/pgrundev/pgboxdb)](https://skills.sh/pgrundev/pgboxdb) once https://skills.sh/pgrundev/pgboxdb lists the skill -->
 
 <p align="center">
-  <sub>Open source · Free · v0.1.3 · For disposable databases, not production data</sub>
+  <sub>Open source · Free · v0.2.0 · For disposable databases, not production data</sub>
 </p>
 
 PGBoxDB is a database runtime for short-lived Postgres databases: agent
@@ -275,8 +275,8 @@ session end     →  branch dropped
 
 ## Status
 
-PGBoxDB is at **v0.1.3**, an early release with known limitations listed in the
-[release notes](https://github.com/pgrundev/pgboxdb/releases/tag/v0.1.3). It
+PGBoxDB is at **v0.2.0**, an early release with known limitations listed in the
+[release notes](https://github.com/pgrundev/pgboxdb/releases/tag/v0.2.0). It
 already powers PGBoxDB branches in [PGRun](https://pgrun.dev), which adds the
 control plane around it: safe masked copies of a source database, sealed
 templates, one branch per agent, PR or CI job, routing, access and

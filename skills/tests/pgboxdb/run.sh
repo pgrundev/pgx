@@ -80,7 +80,7 @@ check empty "d['framework']=='unknown' and d['database_config']['classification'
 check sensitive "d['database_config']['classification']=='sensitive'"
 check empty "d['pgboxdb']['installed']==False"
 check remote-ssl "d['database_config']['classification']=='sensitive'"
-grep -q '0.1.2 or newer' "$skill/SKILL.md" && ! grep -q '0.1.1 or newer' "$skill/SKILL.md" && ! grep -qE 'pgboxdb agent --help. must succeed' "$skill/SKILL.md" && ok "SKILL.md gates on PGBoxDB 0.1.2, not on --help" || bad "SKILL.md must gate on version 0.1.2 (0.1.1 shares the parent's branch with subagents; pgboxdb agent --help exits 0 on old binaries)"
+grep -q '0.2.0 or newer' "$skill/SKILL.md" && ! grep -qE '0\.1\.[0-9] or newer' "$skill/SKILL.md" && ! grep -qE 'pgboxdb agent --help. must succeed' "$skill/SKILL.md" && grep -q 'MIN=${PGBOXDB_MIN_VERSION:-0.2.0}' "$skill/scripts/check-pgboxdb.sh" && ok "SKILL.md and check-pgboxdb.sh gate on PGBoxDB 0.2.0, not on --help" || bad "SKILL.md and check-pgboxdb.sh must gate on 0.2.0, the first PGBoxDB release (pgboxdb agent --help exits 0 on old binaries)"
 grep -q 'scripts/detect-project.sh' "$skill/SKILL.md" && grep -qE '\.claude/skills/pgboxdb/scripts/detect-project\.sh|\.agents/skills/pgboxdb/scripts/detect-project\.sh' "$skill/SKILL.md" && ok "SKILL.md names the installed script paths" || bad "SKILL.md must name the installed script paths"
 # Secrets never leak into the output.
 for f in django prisma node sensitive remote-ssl; do

@@ -4,7 +4,7 @@
 plain `git switch`; PGBoxDB clones a copy-on-write database for each new branch
 from the latest validated snapshot of your main database, gives it back when
 you return to the branch, and never touches a branch database when main moves
-on. PGBoxDB Git needs **PGBoxDB 0.1.3 or newer**.
+on. PGBoxDB Git is in every PGBoxDB release (0.2.0 or newer).
 
 ```sh
 cd my-project

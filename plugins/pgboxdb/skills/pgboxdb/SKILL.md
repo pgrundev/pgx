@@ -14,7 +14,7 @@ description: >
 license: AGPL-3.0
 metadata:
   author: pgrundev
-  version: "0.1.3"
+  version: "0.2.0"
   homepage: https://pgboxdb.com
   repository: https://github.com/pgrundev/pgboxdb
 ---
@@ -95,9 +95,9 @@ PGBoxDB database), `none` (no database yet), `remote` (another host),
 
 ### 2. Make sure PGBoxDB is available
 
-PGBoxDB **0.1.2 or newer** is required. 0.1.1 isolates sessions but not Claude
-Code subagents (they shared the parent's branch); 0.1.0 has no `pgboxdb agent`
-at all. Run the check script next to this file:
+PGBoxDB **0.2.0 or newer** is required: 0.2.0 is the first release under the
+PGBoxDB name, and every PGBoxDB release isolates sessions, Claude Code
+subagents and Git branches. Run the check script next to this file:
 
 ```sh
 bash .claude/skills/pgboxdb/scripts/check-pgboxdb.sh     # or .agents/skills/pgboxdb/scripts/check-pgboxdb.sh,

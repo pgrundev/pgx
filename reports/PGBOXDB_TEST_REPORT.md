@@ -86,8 +86,16 @@ fixed and re-run (19/19).
   (`self.pgx` → `self.pgboxdb`), and the engine has no logic changes.
   Reruns: **4/4 PASS on the new distribution and 4/4 PASS on a prefix with
   the pre-rename 0.1.3 engine**, each with 0 acknowledged commits lost.
-* Not fixed here (unrelated to the rename). Suggested fix: compare `present`
-  against `acked_ids + [acked_ids[-1] + 1]`.
+* **Fixed in the second pass (`a24f804b33`).** The rule is now
+  `prefix_violation()`: the rows must be `acked + [in-flight id]` cut at some
+  point, with no stray, duplicate or out-of-order id, and `full` must still
+  lose 0 acknowledged commits. A new engine-free `PrefixRule` test covers the
+  former false failure and the violations that must still fail. The same
+  helper is used by `test_kill_during_insert_batches`, which had the same
+  latent race. Re-run on the current build: `full` 3× and `ephemeral` 1×,
+  11/11 each. `full` lost 0 acknowledged commits (flood: 14761, 17820 and
+  19106 acknowledged); `ephemeral` lost 358 of 24301 flood commits and 2
+  insert batches, which is the documented `synchronous_commit=off` window.
 
 ## 4. Migration e2e detail (`dist/test/migrate_test.sh`)
 
@@ -162,3 +170,31 @@ scope).
   `https://pgboxdb.com/install`: neither exists yet. Download paths were tested
   against a local HTTP server.
 * Rails app client and the Ruby compat suite (gems missing).
+
+## 7. Second pass (2026-11-16): fixes made after review
+
+Code under test: `rebrand/pgboxdb` at `130d8a56ba` and `release/v0.2.0` at
+`5fbbfd079f`, both on macOS arm64 with Homebrew rustc 1.92. fmt and clippy
+ran on rustc 1.96.
+
+| Check | Result |
+|---|---|
+| `release.yml` replay test (`dist/test/release_workflow_test.rb`), under `sh` and under `dash` | **PASS** 25/25. Run against the workflow from before the fix, it **fails** exactly as v0.1.3 did: `pattern artifacts/**/*.tar.gz matched no file` |
+| `dist/release/version.sh` (inside the replay test, plus `push v0.2.0` / `push v0.1.3` on the release branch) | **PASS**: the matching tag is accepted and a mismatched one refused |
+| `dist/test/dist_consistency_test.sh` | **PASS** 41/41 (rebrand), 42/42 (release). 5 mutations (Worker pin, repository slug, `PGX_` env, npm bin, Docker user) each fail it |
+| shellcheck on `dist/release/*.sh`, the consistency test and `reports/pgrun-dev/apply.sh` | clean |
+| `cargo fmt --check`, `clippy -D warnings` (rustc 1.96) | **PASS** |
+| CLI unit tests | **PASS** 236/0 (+1: trailing-comment conversion) |
+| `dist/test/migrate_test.sh` against a copy of the 0.1.3 release | **PASS** 13/13, now also checking that no comment keeps the previous name |
+| crash suite (`test_crash.py`), `full` 3×, `ephemeral` 1× | **PASS** 11/11 each (§3) |
+| `reports/pgrun-dev/apply.sh` on a copy of the PGRun checkout | **PASS**: plan, apply, idempotent re-run, rollback byte-identical, 3 refusals; the fake `~/.pgx` was unchanged |
+| Worker `node --test` | **PASS** 7/7 |
+| npm unit + e2e (`npm test`), `npm pack --dry-run` | **PASS** 22/22; the pack has 4 files: `bin/pgboxdb.js`, `lib/pgboxdb.js`, `README.md`, `package.json` |
+| `npm_test.sh` against the assembled distribution (0.0.0-mig, and 0.2.0 on the release branch) | **PASS** |
+| `install_test.sh`, `install_discovery_test.sh`, `assemble_test.sh` | **PASS**. The first discovery run failed because my PATH put Homebrew `libpq` first (environment); it was re-run with `PG18_BINDIR` as CI does, and passed |
+| release branch, 0.2.0 distribution: `lifecycle` 27, `databases` 7, `clone` 10, `agent_install` 20, `git` 12, Skill e2e 43, Skill unit, plugin (`claude` CLI), npm 22 | **PASS** |
+| `pgboxdb --version` on the release branch | `pgboxdb 0.2.0 …`; `--json version` gives `"pgboxdb_version":"0.2.0"` |
+| Docker image build and run | **UNAVAILABLE**: the Docker daemon isn't running, and its VM disk was full earlier. Starting it would need space freed inside the VM, which is a deletion, so it was not done. Checked statically by the consistency test (user, paths, env, entrypoint); CI's `docker` job builds and tests it |
+| Linux | **UNAVAILABLE** locally; CI matrix |
+| `actionlint` | **UNAVAILABLE**: not installed. The workflows parse as YAML, and the draft job is replayed by the test above |
+

@@ -10,7 +10,11 @@
     before the rename (compatibility layer, `migrate`, tests, docs)
   * `96381d1a50` rebrand: review fixes (Go driver pattern, site metadata,
     site README)
-  * the commit that adds `reports/` (this file)
+  * `608fcb5153` reports (this file)
+  * second pass: `3891435c18` (release workflow), `66e5b67e37` (migrate
+    comments, PGRun dev change), `a24f804b33` (crash test), `130d8a56ba`
+    (Worker pin, consistency test), then the report updates.
+    Release PR: branch `release/v0.2.0` (`5fbbfd079f`).
 
 ## 1. Method
 
@@ -130,7 +134,7 @@ Groups:
 | Developers' committed `.claude/settings.json` still call `pgx agent hook` (silent no-op once `pgx` is gone) | `agent doctor` warns; `migrate` lists the files; `agent install` replaces them. PGRun's own copy: PGRUN_MIGRATION B1 |
 | A new installer replaces a previous same-version dist under the migrated home | first PGBoxDB release must be ≥ 0.2.0; installers refuse to replace a pre-rename dist (guard added) |
 | Release URLs 404 until the repository is renamed | ordering in the release checklist |
-| `release.yml` draft job drops assets (open bug from v0.1.3) | not fixed here (out of scope); flagged in the checklist |
+| `release.yml` draft job drops assets (open bug from v0.1.3) | fixed in the second pass (`3891435c18`), with a replay test in CI |
 | GitHub redirects `pgrundev/pgx` → `pgrundev/pgboxdb` automatically | legal review item |
 | Docker image not built or run locally (Docker VM disk full) | CI `docker` job covers the build; the entrypoint snippet was unit-tested |
 | Linux not run locally | CI matrix (ubuntu amd64 + arm64) |

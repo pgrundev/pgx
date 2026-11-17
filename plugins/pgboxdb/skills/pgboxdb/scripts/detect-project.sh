@@ -17,7 +17,7 @@ if has manage.py; then framework=django; add_signal manage.py; fi
 if has prisma/schema.prisma; then framework=prisma; add_signal prisma/schema.prisma; fi
 if [ $framework = unknown ] && has package.json && grep -qE '"(pg|postgres|pg-promise|kysely|drizzle-orm|knex)"' package.json 2>/dev/null; then framework=node-pg; add_signal package.json; fi
 if [ $framework = unknown ] && { grep -qiE 'sqlalchemy' requirements.txt pyproject.toml 2>/dev/null; }; then framework=sqlalchemy; has pyproject.toml && add_signal pyproject.toml; has requirements.txt && add_signal requirements.txt; fi
-if [ $framework = unknown ] && has go.mod && grep -qE 'jackc/pgx|lib/pq|pgboxdb/v' go.mod 2>/dev/null; then framework=go; add_signal go.mod; fi
+if [ $framework = unknown ] && has go.mod && grep -qE 'jackc/pgx|lib/pq|pgx/v' go.mod 2>/dev/null; then framework=go; add_signal go.mod; fi
 case $framework in
   rails) has db/migrate && migrations=rails ;;
   django) migrations=django ;;

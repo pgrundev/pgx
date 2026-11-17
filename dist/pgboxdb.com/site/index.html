@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PGBoxDB — Every AI agent gets its own Postgres</title>
 <meta name="description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
+<link rel="canonical" href="https://pgboxdb.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PGBoxDB">
+<meta property="og:title" content="PGBoxDB — Lightweight Postgres-compatible database runtime for AI agents">
+<meta property="og:description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
+<meta property="og:url" content="https://pgboxdb.com/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="PGBoxDB — Lightweight Postgres-compatible database runtime for AI agents">
+<meta name="twitter:description" content="PGBoxDB is a lightweight PostgreSQL-compatible runtime for AI coding agents. Install one Skill and every Claude Code, Cursor or Codex session gets its own isolated, disposable database branch.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Archivo+Black&display=swap" rel="stylesheet">
 <style>
@@ -46,7 +55,8 @@ blockquote{margin:16px 0;padding:12px 18px;border-left:2px solid var(--accent);c
     <div class="brand">pgboxdb.com</div>
     <nav>
       <a href="#skill">skill</a>
-      <a href="skill.html">docs</a>
+      <a href="skill.html">skill guide</a>
+      <a href="https://pgbox.dev/db">docs</a>
       <a href="https://github.com/pgrundev/pgboxdb" target="_blank" rel="noopener">github</a>
     </nav>
   </header>
@@ -94,7 +104,7 @@ pgboxdb branch app feature-123                # a disposable 2-hour branch
 pgboxdb agent exec -- bin/rails test          # any command in its own branch
 pgboxdb agent ls · pgboxdb agent doctor · pgboxdb ttl feature-123 4h · pgboxdb drop feature-123</code></pre>
 
-  <p>Read more: <a href="skill.html">the Skill with Claude Code, Cursor and Codex</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/agents.md">agents guide</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/cli.md">CLI reference</a> · <a href="https://agentskills.io">Agent Skills specification</a> · <a href="https://github.com/pgrundev/pgboxdb">GitHub</a><!-- · <a href="https://skills.sh/pgrundev/pgboxdb">skills.sh</a> (enable once listed) --></p>
+  <p>Read more: <a href="https://pgbox.dev/db">documentation</a> · <a href="skill.html">the Skill with Claude Code, Cursor and Codex</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/agents.md">agents guide</a> · <a href="https://github.com/pgrundev/pgboxdb/blob/main/docs/pgboxdb/local-dev/cli.md">CLI reference</a> · <a href="https://agentskills.io">Agent Skills specification</a> · <a href="https://github.com/pgrundev/pgboxdb">GitHub</a><!-- · <a href="https://skills.sh/pgrundev/pgboxdb">skills.sh</a> (enable once listed) --></p>
   <p style="color:var(--dim)">Open source · AGPL-3.0 · For disposable databases, not production data · macOS arm64, Linux amd64 and arm64</p>
 </main>
 <footer>PGBoxDB — Postgres for agents.</footer>

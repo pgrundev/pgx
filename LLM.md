@@ -1195,7 +1195,7 @@ many isolated databases
 Concept:
 
 ```text
-                    pgxd
+                  pgboxdb
               shared PGBoxDB runtime
 
           /            |            \

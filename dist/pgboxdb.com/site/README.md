@@ -1,8 +1,10 @@
 # pgboxdb.com site content (prepared, not deployed)
 
-The live https://pgboxdb.com is a single static page served through Cloudflare;
-its source is not in this repository (only the `/install` Worker next to this
-directory is). These two files are the skill-first replacement, ready to
+https://pgboxdb.com is not served yet: DNS and hosting are separate steps
+(reports/PGBOXDB_RELEASE_CHECKLIST.md). The site that served the product
+before the rename kept its source outside this repository; only the
+`/install` Worker next to this directory lives here. These two files are the
+pages for https://pgboxdb.com (documentation: https://pgbox.dev/db), ready to
 upload wherever the site is hosted:
 
 - `index.html`: the homepage. Keeps the existing look (dark, JetBrains Mono,

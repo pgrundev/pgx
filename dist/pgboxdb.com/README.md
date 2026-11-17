@@ -30,12 +30,12 @@ own the zone — so a successful deploy is itself proof of control.
 ## Deploy (maintainer, after approval — needs Cloudflare access)
 ```sh
 cd dist/pgboxdb.com
-npx wrangler deploy --var INSTALL_REF:v0.1.0-beta.1   # pin to the released tag
+npx wrangler deploy --var INSTALL_REF:v0.2.0   # pin to the released tag (a PGBoxDB release, >= v0.2.0)
 curl -fsSL https://pgboxdb.com/install | head             # verify it serves the script
 ```
 This adds a single route; it does **not** change DNS or other pgboxdb.com content.
 
 ## Prerequisites before the public `curl | sh` works
-1. Publish the GitHub release (tag `v0.1.0-beta.1`, **prerelease**) with the platform tarballs + `.sha256` (via `.github/workflows/release.yml`, draft → manual publish).
-2. Deploy this Worker with `INSTALL_REF=v0.1.0-beta.1`.
+1. Publish the GitHub release (tag `v0.2.0`, the first PGBoxDB release) with the platform tarballs + `.sha256` (via `.github/workflows/release.yml`, draft → manual publish).
+2. Deploy this Worker with `INSTALL_REF=v0.2.0`. Never an earlier tag: their `install.sh` installs the product from before the rename.
 3. `dist/install.sh` then resolves the release artifacts (its discovery reads the releases list, which includes prereleases).

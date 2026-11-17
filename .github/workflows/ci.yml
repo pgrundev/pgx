@@ -17,7 +17,7 @@ jobs:
       - name: Worker unit tests (node:test)
         run: node --test dist/pgboxdb.com/install-worker.test.js
   release-workflow:
-    name: release workflow (draft job replay, version resolution)
+    name: release workflow and distribution names
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +25,8 @@ jobs:
       # a step order or glob would create a release without its assets.
       - name: release.yml regression tests
         run: ruby dist/test/release_workflow_test.rb
+      - name: npm, release assets, installer, Worker and Docker use the same names
+        run: dist/test/dist_consistency_test.sh
   npm:
     name: npm wrapper (pgboxdb) tests (${{ matrix.os }})
     strategy:

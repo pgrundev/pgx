@@ -33,7 +33,11 @@ approval.** Nothing here has been run. Run them from the PGBoxDB worktree
   are unchanged for now; `PGX_AGENT_TOKEN` rotation is a separate
   production task.
 
-## 1. Merge the rebrand
+## 1. Merge the rebrand: DONE 2026-11-17
+
+PR #50 merged as `75112dad28` (merge commit) after CI run 44025347562 was
+green on head `c8d3551a70`. `release/v0.2.0` then merged `pgx/main`
+(local). The commands that were run:
 
 ```sh
 gh pr ready 50 -R pgrundev/pgx
@@ -54,6 +58,14 @@ git remote set-url pgx git@github.com:pgrundev/pgboxdb.git
 gh repo view pgrundev/pgboxdb --json nameWithOwner,url
 
 gh repo rename pgboxdb-plugin -R pgrundev/pgx-plugin --yes
+
+# Settings carried over from the old name (the homepage waits for the pgx.dev decision):
+gh repo edit pgrundev/pgboxdb --description "PGBoxDB — Lightweight Postgres for AI agents. Written in Rust. Thousands of isolated databases in one runtime"
+gh repo edit pgrundev/pgboxdb --homepage https://pgboxdb.com          # only when approved
+
+# The redirects the old installs depend on (legal option A):
+curl -fsSIL https://github.com/pgrundev/pgx/releases/download/v0.1.3/pgx-0.1.3-darwin-arm64.tar.gz.sha256 | grep -i '^HTTP' | tail -1   # 200
+curl -fsSL https://raw.githubusercontent.com/pgrundev/pgx/v0.1.3/dist/install.sh | head -1                                               # #!/bin/sh
 ```
 
 ## 3. Release PR (version 0.2.0)
@@ -62,11 +74,10 @@ gh repo rename pgboxdb-plugin -R pgrundev/pgx-plugin --yes
 git fetch pgx
 git switch release/v0.2.0
 git merge --no-edit pgx/main        # brings in the merge commit of #50
-git diff pgx/main --stat            # only the version-bump files
+git diff pgx/main --stat            # the version-bump files (19) and 3 report files
 git push -u pgx release/v0.2.0
 gh pr create -R pgrundev/pgboxdb --base main --head release/v0.2.0 \
-  --title "release: PGBoxDB v0.2.0" \
-  --body "Version 0.2.0 in crate, npm, plugin, Skill and README; release notes v0.2.0; Skill floor 0.2.0. See reports/PGBOXDB_V0.2.0_RELEASE_RUNBOOK.md."
+  --title "release: PGBoxDB v0.2.0" --body-file reports/pgboxdb-v0.2.0-pr-body.md
 gh pr checks <PR> -R pgrundev/pgboxdb --watch
 gh pr merge <PR> -R pgrundev/pgboxdb --merge
 ```
@@ -102,6 +113,19 @@ D=$(mktemp -d) && gh release download v0.2.0 -R pgrundev/pgboxdb -D "$D" -p 'pgb
 
 npm can't configure a trusted publisher for a package that doesn't exist
 yet. So the first version is staged with a short-lived token:
+
+0. Optional hardening: the environment has 1 required reviewer but no
+   deployment-branch policy. Restrict it to `v*` tags:
+   ```sh
+   gh api -X PUT repos/pgrundev/pgboxdb/environments/npm-publish --input - <<'EOF'
+   {"reviewers":[{"type":"User","id":REVIEWER_ID}],
+    "deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}
+   EOF
+   gh api -X POST repos/pgrundev/pgboxdb/environments/npm-publish/deployment-branch-policies -f name='v*' -f type=tag
+   ```
+   (`REVIEWER_ID` comes from `gh api users/alexshapalov --jq .id`. The
+   registry check in step 4 is a `dry_run` and never enters the
+   environment.)
 
 1. On npmjs.com, create a granular access token that is **stage-only**
    (read and write, all packages, short expiry). Then add it:
@@ -213,7 +237,7 @@ documents).
 
 | Step | Command |
 |---|---|
-| 1 merge | `gh pr create` a revert of the merge commit |
+| 1 merge | `gh pr create` a revert of merge `75112dad28` |
 | 2 rename | `gh repo rename pgx -R pgrundev/pgboxdb --yes` (and the plugin repository) |
 | 4 tag / draft | `gh release delete v0.2.0 -R pgrundev/pgboxdb --yes` and `git push pgx :refs/tags/v0.2.0` |
 | 5 npm | a staged version that isn't approved never goes live (reject it). Once live: `npm deprecate pgboxdb@0.2.0 "<reason>"`, or unpublish within 72 h |

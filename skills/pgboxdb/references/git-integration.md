@@ -13,9 +13,8 @@ feature/auth ─ pgboxdb_<repo>_auth_<hash>      the developer's branch database
 
 ## Version
 
-`pgboxdb git` needs **PGBoxDB 0.1.3 or newer**. On 0.1.2 `pgboxdb git` is an unknown
-command (exit 2); the agent features (`pgboxdb agent …`) still work there, so
-only offer PGBoxDB Git after `pgboxdb --json version` reports 0.1.3 or newer.
+`pgboxdb git` is in every PGBoxDB release (0.2.0 or newer, the same floor as
+the rest of this skill: `scripts/check-pgboxdb.sh`).
 
 ## Detect
 

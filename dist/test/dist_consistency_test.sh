@@ -96,5 +96,8 @@ crate="$(sed -n 's/^version *= *"\(.*\)"/\1/p' crates/bin/pgboxdb/Cargo.toml | h
 npm="$(sed -n 's/^ *"version": *"\(.*\)",*$/\1/p' dist/npm/package.json | head -1)"
 [ "$crate" = "$npm" ] && ok "crate and npm versions agree ($crate)" || bad "crate $crate vs npm $npm"
 
+# 10. The Worker serves the installer of the version being released.
+[ "$ref" = "v$crate" ] && ok "Worker INSTALL_REF is v$crate" || bad "Worker INSTALL_REF $ref is not v$crate (bump it with the version)"
+
 echo "$((N - FAILS))/$N checks passed"
 [ "$FAILS" -eq 0 ]

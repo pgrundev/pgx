@@ -1,128 +1,130 @@
 # PGBoxDB v0.2.0: final release checklist
 
-Everything under "Requires approval" is an external or irreversible action.
-None of it was performed, and each item needs its own explicit go-ahead.
+Updated 2026-11-17. Exact commands: `PGBOXDB_V0.2.0_RELEASE_RUNBOOK.md`.
 Readiness and risks: `PGBOXDB_V0.2.0_READINESS.md`.
 
-## Done locally (not pushed)
+## Done
 
-Branch `rebrand/pgboxdb` (base `pgx/main` `56177328d7`):
+- [x] Rebrand, compatibility layer, `pgboxdb migrate`, release-workflow fix
+      and regression test, consistency test, crash-test fix, PGRun dev
+      change, reports (`rebrand/pgboxdb`)
+- [x] CI green on the final head `c8d3551a70` (run 44025347562): Linux
+      amd64 and arm64, macOS, Docker amd64 and arm64, npm, Worker, Skill,
+      plugin, `release-workflow`
+- [x] Release workflow verified on GitHub as a dry run (run 44017561323):
+      7 files, no release, no tag
+- [x] **PR #50 merged** (approved 2026-11-17): `pgx/main` = `75112dad28`, a
+      merge commit, so the GitHub history is preserved
+- [x] `release/v0.2.0` brought up to date with `pgx/main` (merge, local, not
+      pushed). Its diff against `main` is only the version bump (19 files)
+      plus 3 report files (checklist, runbook, PR body) and one test fix
+- [x] **CI on `main` after the merge** (run 44034607732): every job green
+      except Linux arm64, which hit a test-harness flake. One lifecycle test
+      spawned the binary without the harness retry and got ETXTBSY ("Text
+      file busy"); the same tree passed on the PR. The failed job was re-run,
+      and `5a6db56443` on `release/v0.2.0` routes the three affected tests
+      through the retrying spawn (lifecycle 27/27 locally)
+- [x] Re-tested on `release/v0.2.0`: release replay 31/31, consistency 42/42,
+      `version.sh push v0.2.0` → `0.2.0`, npm 22/22, Skill suite
+- [x] **`npm-publish` environment**: 1 required reviewer (`alexshapalov`).
+      `publish` is the only job that uses it, and it runs only in
+      `pgrundev/pgboxdb`. See "Open points" for the branch policy
+- [x] **Repository references**: every workflow, the installer, the npm
+      wrapper, the Worker, the Docker files, the Skill and the plugin
+      reference `pgrundev/pgboxdb` (or `pgrundev/pgboxdb-plugin`). The old
+      slug remains only in history: the v0.1.x release notes (kept as
+      published), dated validation logs and plans, and these reports
+- [x] Historical release notes preserved as "Earlier releases (as PGX)"
 
-- [x] Rename implemented: crate, binary, npm package, env, paths, docs, Skill,
-      plugin, workflows, Docker, installer, Worker (`PGBOXDB_RENAME_AUDIT.md`)
-- [x] Compatibility layer and `pgboxdb migrate` with rollback
-      (`PGBOXDB_COMPATIBILITY_MATRIX.md`); trailing project-file comments
-      converted too (`66e5b67e37`)
-- [x] **`release.yml` asset-wipe bug fixed** (`3891435c18`). The draft job
-      checks out before downloading, `dist/release/collect.sh` requires and
-      verifies every asset, `fail_on_unmatched_files` is set, and the
-      version is resolved once and must match crate and npm. The
-      dispatch-run bug (version `main<v>`) is fixed too.
-- [x] **Regression coverage**: `dist/test/release_workflow_test.rb`
-      replays the draft job, fails on the old workflow, and runs in CI
-      (`release-workflow` job)
-- [x] **One-name consistency** across npm, release assets, installer,
-      Worker and Docker: `dist/test/dist_consistency_test.sh` (in CI). The
-      Worker is pinned to `v0.2.0` (`130d8a56ba`).
-- [x] **Crash test harness** false failure fixed (`a24f804b33`)
-- [x] **PGRun dev change prepared**: `reports/pgrun-dev/` (before/after
-      files and a tested `apply.sh` with rollback). No PGRun repository
-      change is needed.
-- [x] **`PGX_AGENT_TOKEN` investigated**: not in git, in an ignored `0600`
-      file. Rotation is optional, and the procedure is in PGRun migration §F.
-- [x] Local test matrix green on macOS arm64 (`PGBOXDB_TEST_REPORT.md` §2, §7)
+## Legal decision on GitHub's redirects: option A chosen (2026-11-19)
 
-Branch `release/v0.2.0` (`5fbbfd079f`, on top of `130d8a56ba`):
+Renaming `pgrundev/pgx` → `pgrundev/pgboxdb` keeps the history, the 718
+stars, 37 forks, issues, PRs and releases. GitHub then redirects every old
+URL (web, `git clone`, release downloads, raw files) to the new name, with
+no expiry. Only creating a new repository named `pgrundev/pgx` ends the
+redirect. Facts that bear on the decision:
 
-- [x] Version 0.2.0 in crate, `Cargo.lock`, npm, plugin, Skill and README;
-      release notes `v0.2.0` (with `pgboxdb top`); Skill floor 0.2.0.
-      Tested: unit, lifecycle, databases, clone, agent_install, git,
-      Skill e2e and unit, plugin, npm, and the consistency test (42/42)
-      against an assembled 0.2.0 distribution.
-
-## Decisions
-
-- [ ] **Legal review** of the remaining uses of the previous name
-      (compatibility matrix, "Legal review" items 1–6)
-- [x] Release notes: v0.1.x kept as published (PGX), under "Earlier releases
-      (as PGX)"; PGBoxDB starts at v0.2.0 (`1fc2afb8b5`)
-- [x] npm `pgxdb` and pgx.dev: unchanged, pending legal review
-- [x] `PGX_AGENT_TOKEN` rotation: a separate production maintenance task
-- [ ] `SECURITY.md` / issue templates for the public launch (they need a
-      reporting contact)
-
-## CI validation (done, 2026-11-17)
-
-- [x] `rebrand/pgboxdb` pushed; draft PR #50. CI run 44017542703 green:
-      Linux amd64 and arm64, macOS, Docker amd64 and arm64, npm, Worker,
-      Skill, plugin, release-workflow
-- [x] Release workflow on GitHub: run 44017561323 (`workflow_dispatch`).
-      All 4 builds passed with packaged tests; `draft-dry-run` listed
-      exactly 7 files; no release or tag was created
-- [x] `release/v0.2.0` contains every rebrand commit (merge, local)
-
-**The exact release commands are in `PGBOXDB_V0.2.0_RELEASE_RUNBOOK.md`.**
+* **What depends on the redirect today:**
+  * npm `pgxdb@0.1.3` downloads from `github.com/pgrundev/pgx/releases`;
+  * the live pgx.dev Worker serves `raw.githubusercontent.com/pgrundev/pgx/…/install.sh`;
+  * PGRun's dev `engine.pin` clones `git@github.com:pgrundev/pgx.git`;
+  * existing clones and the Claude Code marketplace `pgrundev/pgx-plugin`.
+* **The options:**
+  * **A. Rename and keep the redirects** (the runbook's plan). Nothing
+    breaks. The old name keeps resolving to PGBoxDB on github.com.
+  * **B. Rename, then end the redirects** by creating placeholder
+    repositories `pgrundev/pgx` and `pgrundev/pgx-plugin`, with an empty
+    README or a notice. Everything in the list above breaks: `pgxdb` and
+    pgx.dev installs fail, and old clones point at the placeholder. Do it
+    only together with deprecating `pgxdb` and retiring pgx.dev, which are
+    currently held for legal.
+  * **C. Do not rename.** Create `pgrundev/pgboxdb` fresh and push the full
+    git history to it. The commits and tags are preserved; the issues, PRs,
+    stars and releases stay on `pgrundev/pgx`. No redirect exists.
+* **Repository settings carried over by a rename:** homepage
+  `https://pgx.dev` and the description "PGX — Lightweight Postgres…". Both
+  need updating (`gh repo edit`). The homepage change is part of the pgx.dev
+  decision.
 
 ## Requires approval: in this order
 
-1. [ ] **Push `rebrand/pgboxdb`** to the `pgx` remote and open the PR against
-       `main`. CI must be green, including the jobs that never ran
-       locally: Linux `cli` (amd64, arm64), `docker` (amd64, arm64), and
-       the new `release-workflow` job. Review, then merge. `prod` is
-       untouched.
-2. [ ] **Rename the GitHub repository** `pgrundev/pgx` → `pgrundev/pgboxdb`,
-       then `git remote set-url pgx git@github.com:pgrundev/pgboxdb.git`
-       locally. Do it before step 5: every download URL points at
-       `pgrundev/pgboxdb`. Do steps 2–6 close together (readiness, risk 4).
-3. [ ] **Rename `pgrundev/pgx-plugin`** → `pgrundev/pgboxdb-plugin` and sync
-       it from `plugins/pgboxdb` (`publish-plugin.yml`, dry run first).
-4. [ ] **Release PR**: push `release/v0.2.0`, open it against `main`, then
-       wait for CI and merge.
-5. [ ] **Tag and release**: push tag `v0.2.0` on the merged `main` commit,
-       then watch `release.yml`. The guard prints `0.2.0`. The draft must
-       list `pgboxdb-0.2.0-{darwin-arm64,linux-amd64,linux-arm64}.tar.gz`,
-       their `.sha256` files and `checksums.txt` (7 files, no darwin-amd64).
-       Download one tarball, run `shasum -a 256 -c`, then publish the draft.
-6. [ ] **npm**: create the trusted publisher for the **new** package
-       `pgboxdb` (OIDC, `npm-publish.yml`, environment `npm`). It is a first
-       publish of a new name, so use staged publishing (the default) and
-       approve with 2FA. Then check `npx pgboxdb@0.2.0 --version` from a
-       clean HOME.
-7. [ ] **Installer Worker**: `wrangler deploy` (it is already pinned to
-       `v0.2.0`) on the account that owns the `pgboxdb.com` zone. Check
-       `curl -fsSL https://pgboxdb.com/install | sh`.
-8. [ ] **DNS / site**: point `pgboxdb.com` at `dist/pgboxdb.com/site`, and
-       `pgbox.dev/db` at the documentation.
-9. [ ] **Docker**: if images are published, use the `pgboxdb` name only (and
-       first add `ARG PGBOXDB_VERSION`; readiness, risk 6).
-10. [ ] **Claude Code marketplace**: announce installing `pgboxdb` and
-        uninstalling `pgx`.
-11. [ ] **PGRun**: each developer runs `reports/pgrun-dev/apply.sh
-        <pgrun-checkout>` after installing `pgboxdb`, then migrates their
-        home by hand (§B3). Update the marketing links (§C) once
-        `pgboxdb.com` serves.
+1. [x] **Legal**: option A (rename, keep GitHub's redirects, no placeholders)
+2. [x] **Rename** (done 2026-11-19 19:53:30 UTC) `pgrundev/pgx` → `pgrundev/pgboxdb` and `pgrundev/pgx-plugin`
+       → `pgrundev/pgboxdb-plugin`; update the description and homepage;
+       `git remote set-url`. Check the redirects (runbook step 2)
+3. [ ] **Release PR**: #52 open (pushed 2026-11-19); CI, then merge
+4. [ ] **Tag** `v0.2.0` on the merged `main`; check the draft (7 files,
+       `shasum -c`)
+5. [ ] **Publish the GitHub Release** (separate approval). This starts
+       `npm-publish.yml`
+6. [ ] **npm**: stage-only `NPM_TOKEN`; approve the `npm-publish`
+       environment; **approve the staged package with 2FA** (separate
+       approval); registry clean-machine check; switch to the trusted
+       publisher; delete and revoke the token
+7. [ ] **Worker** `wrangler deploy` (separate approval)
+8. [x] **pgx.dev 301 → pgboxdb.com**: live since 2026-11-19 19:58:36 UTC,
+       ends by itself 2027-02-17 19:58:29 UTC; delete the Worker then
+       (`dist/legacy-domain-redirect/README.md`). `/install` is not redirected
+9. [ ] Clean-install verification (runbook step 8)
+10. [ ] Plugin repository sync secrets and `publish-plugin.yml`; Docker
+        naming; PGRun developers run `reports/pgrun-dev/apply.sh` (PGRun
+        production is not touched)
+
+## Open points (no blocker)
+
+* The `npm-publish` environment has **no deployment-branch policy**, so a
+  run from any branch could request it. The reviewer gate and npm's 2FA
+  approval still hold. Suggest restricting it to tags `v*` after the rename:
+  `gh api -X PUT repos/pgrundev/pgboxdb/environments/npm-publish` with
+  `deployment_branch_policy`, plus a tag rule (runbook step 5.0).
+* `prevent_self_review` is off. You are the only reviewer, so it must stay
+  off, or nobody could approve.
+* `plugin-publish` has no reviewers.
+* Branch protection on `main` requires the Linux and macOS `cli` checks and
+  Docker amd64. `release-workflow` is not required; consider adding it.
+* `SECURITY.md` and issue templates are still missing for the public launch.
 
 ## Post-release verification
 
 - [ ] `npx pgboxdb@latest` on a machine with no previous install: `run`,
       `ls`, `top --demo`, `stop`
-- [ ] On a machine with `~/.pgx`: `pgboxdb` refuses with the migrate hint.
-      Then `pgboxdb migrate`, `migrate --apply` and `start` must keep every
-      database, and `migrate --rollback --apply` must return to the old
-      state.
+- [ ] On a machine with `~/.pgx`: `pgboxdb` refuses with the migrate hint;
+      `migrate`, `migrate --apply` and `start` keep every database;
+      `migrate --rollback --apply` restores the old state
 - [ ] `curl -fsSL https://pgboxdb.com/install | sh` verifies the checksum
 - [ ] `/plugin install pgboxdb@pgboxdb-plugin` in a fresh Claude Code config
-- [ ] The Skill's `check-pgboxdb.sh` reports `{"ok":true,"version":"0.2.0"…}`
+- [ ] `check-pgboxdb.sh` reports `{"ok":true,"version":"0.2.0"…}`
+- [ ] `pgxdb@0.1.3` and the pgx.dev install still work through the redirect
+      (option A)
 
 ## Rollback
 
 | Step | Rollback |
 |---|---|
-| merge to `main` | revert the merge commit (a PR); `prod` and PGRun are unaffected |
-| repository rename | rename it back (GitHub keeps redirects until the name is reused) |
-| release / tag | set the release back to draft or delete it, and delete the tag (both outward, need approval) |
-| npm `pgboxdb` | `npm deprecate pgboxdb@0.2.0`, or unpublish within 72 h (npm policy) |
+| merge to `main` (done) | revert merge `75112dad28` with a PR; `prod` and PGRun are unaffected |
+| repository rename | rename it back (works while nobody has created the old name) |
+| release / tag | set the release back to draft or delete it, and delete the tag |
+| npm `pgboxdb` | reject an unapproved staged version; once live, `npm deprecate`, or unpublish within 72 h |
 | Worker | `wrangler rollback` |
 | user data | `pgboxdb migrate --rollback --apply` (tested) |
 | PGRun dev files | `reports/pgrun-dev/apply.sh <checkout> --rollback` (tested) |
-| these branches locally | `git worktree remove .worktrees/pgboxdb`, `git branch -D rebrand/pgboxdb release/v0.2.0` (deletes local work; ask first) |

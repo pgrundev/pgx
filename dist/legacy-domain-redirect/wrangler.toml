@@ -1,0 +1,24 @@
+# Transition redirect https://pgx.dev/* → https://pgboxdb.com/* (301).
+# Authorised for at most 90 days. From REDIRECT_UNTIL on it answers 410 Gone for
+# every path. KEEP it deployed after that: deleting it would bring the previous
+# site back. Never moves, releases or deletes the domain.
+name = "pgx-dev-redirect"
+main = "redirect-worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+# pgx.dev/install has its own, more specific route (Worker pgx-install), and /install
+# is also handed to it through the INSTALLER binding below: never redirected.
+routes = [
+  { pattern = "pgx.dev/*", zone_name = "pgx.dev" },
+]
+
+# /install is answered by the installer Worker through this binding, so the
+# script is served whichever route matches first.
+services = [
+  { binding = "INSTALLER", service = "pgx-install" },
+]
+
+[vars]
+# Prepared at 2026-11-19T19:58:29Z; activation + 90 days at the latest.
+REDIRECT_UNTIL = "2027-02-17T19:58:29Z"

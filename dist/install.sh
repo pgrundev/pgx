@@ -4,7 +4,7 @@
 # $PGBOXDB_BIN_DIR. No root, no system PostgreSQL.
 #
 #   curl -fsSL https://pgboxdb.com/install | sh
-#   PGBOXDB_VERSION=0.1.0 PGBOXDB_BIN_DIR=~/.local/bin sh install.sh
+#   PGBOXDB_VERSION=0.2.0 PGBOXDB_BIN_DIR=~/.local/bin sh install.sh
 #
 # Environment:
 #   PGBOXDB_VERSION       version to install (default: latest release)

@@ -21,8 +21,8 @@ runs start in well under a second.
 
 `pgboxdb@X.Y.Z` installs PGBoxDB `X.Y.Z`, so `@latest` is the latest PGBoxDB release.
 `PGBOXDB_VERSION`, `PGBOXDB_INSTALL_DIR` and `PGBOXDB_BASE_URL` override the version,
-cache directory and download base. `npm install -g pgboxdb` provides both
-`pgboxdb` and `pgboxdb` on your PATH. Node.js 18+ is required. Supported: Apple
+cache directory and download base. `npm install -g pgboxdb` puts
+`pgboxdb` on your PATH. Node.js 18+ is required. Supported: Apple
 silicon Macs and Linux (arm64, x86-64); Intel Macs and Windows are not
 supported (see the platform table below).
 

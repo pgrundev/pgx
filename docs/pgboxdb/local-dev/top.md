@@ -22,7 +22,7 @@ simulated**, which the `DEMO / SIMULATED` badge says; real mode never shows
 that badge.
 
 ```text
- PGBoxDB TOP   DEMO / SIMULATED                                                   ● LIVE 1s   PGBoxDB 0.1.3
+ PGBoxDB TOP   DEMO / SIMULATED                                                   ● LIVE 1s   PGBoxDB 0.2.0
  Runtime: RUNNING  PID 73136  Port 5433   Uptime 00:42:59
  MEM [█░░░░░░░░░░░░░░░░░░░░░░░░] 194 MB RSS (whole runtime)   CPU n/a
  DATABASES 6   AGENT DBS 5   SESSIONS 1   CONNS 7   ISSUES 0                         sort:name tree
@@ -193,7 +193,7 @@ One object, the same collector and model the screen uses:
   "mode": "live",
   "simulated": false,
   "collected_at": "2026-11-11T20:00:00Z",
-  "pgboxdb_version": "0.1.3",
+  "pgboxdb_version": "0.2.0",
   "runtime": {"status": "running", "running": true, "pid": 1234, "port": 5433,
               "uptime_seconds": 2538, "rss_bytes": 201326592,
               "rss_scope": "whole runtime process", "cpu_percent": null,

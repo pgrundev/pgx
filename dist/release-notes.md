@@ -3,11 +3,7 @@
 A self-contained, relocatable, PostgreSQL 18 compatible runtime for local
 development, CI and disposable databases. No system PostgreSQL required.
 
-## PGBoxDB vNEXT — the first release under the PGBoxDB name
-
-<!-- Release PR: replace vNEXT with the release version. It must be a version
-     never published before the rename (0.2.0 or later): see
-     reports/PGBOXDB_RELEASE_CHECKLIST.md. -->
+## PGBoxDB v0.2.0 — the first release under the PGBoxDB name
 
 This runtime is now **PGBoxDB**: a lightweight Postgres-compatible database
 runtime for AI agents. Home: https://pgboxdb.com · documentation:
@@ -33,6 +29,12 @@ pgboxdb --version
   as aliases; they are reported, and `pgboxdb agent install`, `pgboxdb git
   init` and `pgboxdb git install-shell` replace the previous entries in place.
   Guide: docs/pgboxdb/local-dev/upgrading.md.
+- **New: `pgboxdb top`**, a read-only live terminal monitor of the local
+  runtime: every database grouped by project, Git branch and agent session,
+  with connections, TTL countdowns, lifecycle and size, refreshed every
+  second. `pgboxdb top --demo` shows a simulated session without a runtime,
+  and `pgboxdb --json top --snapshot` gives one collection as JSON. Guide:
+  docs/pgboxdb/local-dev/top.md.
 - **Docker:** the image runs as user `pgboxdb` (uid 10001, unchanged) with its
   volume at `/var/lib/pgboxdb`. A volume from the previous image works when
   mounted there.

@@ -7,18 +7,17 @@ command -v pgboxdb && pgboxdb --json version      # {"pgboxdb_version":"0.1.x", 
 pgboxdb --json status                         # exit 3 when initialised but stopped; hooks start it on demand
 ```
 
-The skill needs **PGBoxDB 0.1.2 or newer**
-(https://github.com/pgrundev/pgboxdb/releases/tag/v0.1.2): the first release
-in which Claude Code subagents get their own branches (0.1.1 isolated
-sessions only and let subagents share the parent's branch; 0.1.0 has no
-`pgboxdb agent` command group).
+The skill needs **PGBoxDB 0.2.0 or newer**
+(https://github.com/pgrundev/pgboxdb/releases/tag/v0.2.0): the first release
+under the PGBoxDB name. Every PGBoxDB release has `pgboxdb agent` (sessions
+and Claude Code subagents get their own branches) and `pgboxdb git`.
 `scripts/check-pgboxdb.sh` decides: exit 0 compatible, 3 missing, 2 too old, 4
 malformed, always with one JSON line. It compares `pgboxdb --json version` →
 `pgboxdb_version` as semver (`PGBOXDB_MIN_VERSION` overrides the floor). Do not use
 `pgboxdb agent --help` as the test: `--help` prints the global help on every
 version. An older binary: upgrade with the method it was installed with
 (`npm i -g pgboxdb@latest`, or the installer again) and run the check again;
-if the upgrade still reports 0.1.0, the newer package is not yet on that
+if the upgrade still reports an older version, the newer package is not yet on that
 channel and the user should install from the GitHub release.
 
 ## Install, in order of preference
@@ -27,7 +26,7 @@ channel and the user should install from the GitHub release.
    `~/.local/bin/pgboxdb`, Homebrew, or `~/.pgboxdb/dist/<version>/bin/pgboxdb`). Prefer
    it; do not download twice.
 2. **npm**, when Node.js 18+ is present: `npm i -g pgboxdb` installs the
-   `pgboxdb` and `pgboxdb` commands; the first run downloads the native release
+   `pgboxdb` command; the first run downloads the native release
    tarball into `~/.pgboxdb/dist/<version>`. `npx pgboxdb@latest` works without a
    global install but gives you `npx pgboxdb …` instead of `pgboxdb …`.
 3. **The official installer**: `curl -fsSL https://pgboxdb.com/install | sh`.

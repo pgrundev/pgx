@@ -384,7 +384,7 @@ activated and your permissions allow it.
 | Cursor | hooks installed; `pgboxdb agent exec --` when `PGBOXDB_ISOLATION` is unset | env propagation pending live verification |
 | Codex | `pgboxdb agent exec -- codex` (Codex hooks cannot set environment) | wrapper verified |
 
-Requires PGBoxDB 0.1.2 or newer; the Skill checks the installed version before it
+Requires PGBoxDB 0.2.0 or newer; the Skill checks the installed version before it
 does anything. [`pgrundev/pgboxdb-plugin`](https://github.com/pgrundev/pgboxdb-plugin)
 holds only the plugin (about 110 KB, generated from this repository), so
 the install takes seconds; adding this repository itself as the marketplace

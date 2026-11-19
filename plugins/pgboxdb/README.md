@@ -10,7 +10,7 @@ your project's database, so parallel agents, migrations and test runs never
 touch your real PostgreSQL and never overwrite one another.
 
 The plugin contains instructions and integration logic only. The PGBoxDB database
-runtime (the `pgboxdb` binary, **PGBoxDB 0.1.2 or newer**) is installed separately,
+runtime (the `pgboxdb` binary, **PGBoxDB 0.2.0 or newer**) is installed separately,
 and a project still needs a one-time `pgboxdb agent setup` before its sessions
 are isolated. Both steps are walked through by the skill the first time you
 use it in a project.

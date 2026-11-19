@@ -36,15 +36,15 @@ the Skill is activated and the host's permissions allow it.
 
 ## Versions
 
-`pgboxdb agent` and the Skill need **PGBoxDB 0.1.2 or newer**
-([release](https://github.com/pgrundev/pgboxdb/releases/tag/v0.1.2): linux-amd64,
-linux-arm64, darwin-arm64 with SHA-256 checksums). 0.1.2 is the first
-release in which Claude Code subagents get their own branches: 0.1.1
-isolated sessions but let subagents share the parent's branch, and the
-published 0.1.0 has no `pgboxdb agent`. The Skill's `scripts/check-pgboxdb.sh`
-verifies the installed binary from `pgboxdb --json version` and refuses older
-ones with a hint naming what they lack. npm `pgboxdb@0.1.2` follows the GitHub
-release through the repository's staged publishing process.
+`pgboxdb agent` and the Skill need **PGBoxDB 0.2.0 or newer**
+([release](https://github.com/pgrundev/pgboxdb/releases/tag/v0.2.0): linux-amd64,
+linux-arm64, darwin-arm64 with SHA-256 checksums), the first release under
+the PGBoxDB name. It includes per-session branches, separate branches for
+Claude Code subagents, and the Git integration. The Skill's
+`scripts/check-pgboxdb.sh` verifies the installed binary from
+`pgboxdb --json version` and refuses older ones with a hint naming what they
+lack. npm `pgboxdb@0.2.0` follows the GitHub release through the
+repository's staged publishing process.
 
 ## What you get
 

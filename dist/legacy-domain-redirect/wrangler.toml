@@ -1,0 +1,17 @@
+# Transition redirect https://pgx.dev/* → https://pgboxdb.com/* (301).
+# Authorised for at most 90 days. The Worker stops redirecting at REDIRECT_UNTIL
+# by itself; then delete it (README). Never moves, releases or deletes the domain.
+name = "pgx-dev-redirect"
+main = "redirect-worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+# pgx.dev/install keeps its own, more specific route (Worker pgx-install), so the
+# PGX installer script is never redirected to an HTML page.
+routes = [
+  { pattern = "pgx.dev/*", zone_name = "pgx.dev" },
+]
+
+[vars]
+# Prepared at 2026-11-19T19:58:29Z; activation + 90 days at the latest.
+REDIRECT_UNTIL = "2027-02-17T19:58:29Z"

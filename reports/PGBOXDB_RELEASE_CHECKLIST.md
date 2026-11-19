@@ -36,7 +36,7 @@ Readiness and risks: `PGBOXDB_V0.2.0_READINESS.md`.
       published), dated validation logs and plans, and these reports
 - [x] Historical release notes preserved as "Earlier releases (as PGX)"
 
-## Stopped here: legal decision on GitHub's redirects
+## Legal decision on GitHub's redirects: option A chosen (2026-11-19)
 
 Renaming `pgrundev/pgx` → `pgrundev/pgboxdb` keeps the history, the 718
 stars, 37 forks, issues, PRs and releases. GitHub then redirects every old
@@ -68,12 +68,11 @@ redirect. Facts that bear on the decision:
 
 ## Requires approval: in this order
 
-1. [ ] **Legal**: choose A, B or C above, and sign off on the remaining
-       uses of the previous name (compatibility matrix, "Legal review")
-2. [ ] **Rename** `pgrundev/pgx` → `pgrundev/pgboxdb` and `pgrundev/pgx-plugin`
+1. [x] **Legal**: option A (rename, keep GitHub's redirects, no placeholders)
+2. [x] **Rename** (done 2026-11-19 19:53:30 UTC) `pgrundev/pgx` → `pgrundev/pgboxdb` and `pgrundev/pgx-plugin`
        → `pgrundev/pgboxdb-plugin`; update the description and homepage;
        `git remote set-url`. Check the redirects (runbook step 2)
-3. [ ] **Release PR**: push `release/v0.2.0`, open the PR, CI green, merge
+3. [ ] **Release PR**: #52 open (pushed 2026-11-19); CI, then merge
 4. [ ] **Tag** `v0.2.0` on the merged `main`; check the draft (7 files,
        `shasum -c`)
 5. [ ] **Publish the GitHub Release** (separate approval). This starts
@@ -83,7 +82,9 @@ redirect. Facts that bear on the decision:
        approval); registry clean-machine check; switch to the trusted
        publisher; delete and revoke the token
 7. [ ] **Worker** `wrangler deploy` (separate approval)
-8. [ ] **DNS / site** (separate approval). pgx.dev is not redirected
+8. [x] **pgx.dev 301 → pgboxdb.com**: live since 2026-11-19 19:58:36 UTC,
+       ends by itself 2027-02-17 19:58:29 UTC; delete the Worker then
+       (`dist/legacy-domain-redirect/README.md`). `/install` is not redirected
 9. [ ] Clean-install verification (runbook step 8)
 10. [ ] Plugin repository sync secrets and `publish-plugin.yml`; Docker
         naming; PGRun developers run `reports/pgrun-dev/apply.sh` (PGRun

@@ -46,7 +46,14 @@ gh pr merge 50 -R pgrundev/pgx --merge     # merge commit, as for #49
 gh run list -R pgrundev/pgx --branch main --limit 3   # CI on main green
 ```
 
-## 2. Rename the repositories
+## 2. Rename the repositories: DONE 2026-11-19 19:53:30 UTC (option A)
+
+Both repositories were renamed. Their IDs, stars (728), forks (37), issues,
+PRs and releases are unchanged. Verified afterwards through the old names:
+the web pages, issue and PR pages, release downloads, `releases/latest`,
+the API, raw files (served directly), and HTTPS and SSH clones. No
+placeholder repositories were created. The local remote is
+`git@github.com:pgrundev/pgboxdb.git`. The commands that were run:
 
 Do steps 2–6 close together. Between the rename and the 0.2.0 release,
 `install.sh` without a version picks v0.1.3, whose assets are named `pgx-…`,
@@ -68,7 +75,7 @@ curl -fsSIL https://github.com/pgrundev/pgx/releases/download/v0.1.3/pgx-0.1.3-d
 curl -fsSL https://raw.githubusercontent.com/pgrundev/pgx/v0.1.3/dist/install.sh | head -1                                               # #!/bin/sh
 ```
 
-## 3. Release PR (version 0.2.0)
+## 3. Release PR (version 0.2.0): OPEN as #52 (2026-11-19)
 
 ```sh
 git fetch pgx
@@ -175,6 +182,11 @@ curl -fsSI https://pgboxdb.com/install | grep -i x-pgboxdb-install-ref    # v0.2
 ```
 
 ## 7. DNS / site
+
+`pgx.dev/*` 301 → `pgboxdb.com` is LIVE since 2026-11-19 19:58:36 UTC. It
+ends by itself at 2027-02-17 19:58:29 UTC; see
+`dist/legacy-domain-redirect/README.md`. `pgx.dev/install` is not redirected.
+`pgboxdb.com` already serves its landing page, and its DNS was not changed.
 
 Point `pgboxdb.com` at `dist/pgboxdb.com/site`, and `pgbox.dev/db` at the
 documentation.

@@ -13,8 +13,8 @@ a default `app` database and prints its connection URL:
 
 ```console
 $ npx pgboxdb@latest
-pgboxdb: downloading PGBoxDB 0.1.0 (darwin-arm64) from https://github.com/pgrundev/pgboxdb/releases/download/v0.1.0/pgboxdb-0.1.0-darwin-arm64.tar.gz
-pgboxdb: installed PGBoxDB 0.1.0 to /Users/you/.pgboxdb/dist/0.1.0
+pgboxdb: downloading PGBoxDB 0.2.0 (darwin-arm64) from https://github.com/pgrundev/pgboxdb/releases/download/v0.2.0/pgboxdb-0.2.0-darwin-arm64.tar.gz
+pgboxdb: installed PGBoxDB 0.2.0 to /Users/you/.pgboxdb/dist/0.2.0
 PGBoxDB is ready.
 
   postgres://postgres:…@127.0.0.1:5432/app
@@ -42,7 +42,7 @@ npx pgboxdb --json ls                    # machine-readable (for agents)
 npx pgboxdb stop
 ```
 
-`npm install -g pgboxdb` puts both `pgboxdb` and `pgboxdb` on your PATH.
+`npm install -g pgboxdb` puts `pgboxdb` on your PATH.
 
 ## How it works
 

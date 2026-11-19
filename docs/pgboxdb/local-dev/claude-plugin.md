@@ -66,7 +66,7 @@ Then, in a project with a database:
 `pgboxdb:pgboxdb` is the skill's name under the plugin's namespace. You can also just
 describe database work ("add a column and run the tests"); Claude selects
 the skill when it is relevant. Both routes run the same Skill: detect the
-project, check for PGBoxDB 0.1.2 or newer and offer to install it, prepare a
+project, check for PGBoxDB 0.2.0 or newer and offer to install it, prepare a
 schema-only template, `pgboxdb agent setup`, then work inside the session's
 branch. See [agents.md](agents.md) for what that gives you.
 

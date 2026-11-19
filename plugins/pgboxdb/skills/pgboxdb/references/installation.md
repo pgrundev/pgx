@@ -26,7 +26,7 @@ channel and the user should install from the GitHub release.
    `~/.local/bin/pgboxdb`, Homebrew, or `~/.pgboxdb/dist/<version>/bin/pgboxdb`). Prefer
    it; do not download twice.
 2. **npm**, when Node.js 18+ is present: `npm i -g pgboxdb` installs the
-   `pgboxdb` and `pgboxdb` commands; the first run downloads the native release
+   `pgboxdb` command; the first run downloads the native release
    tarball into `~/.pgboxdb/dist/<version>`. `npx pgboxdb@latest` works without a
    global install but gives you `npx pgboxdb …` instead of `pgboxdb …`.
 3. **The official installer**: `curl -fsSL https://pgboxdb.com/install | sh`.

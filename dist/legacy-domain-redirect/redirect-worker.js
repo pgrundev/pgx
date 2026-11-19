@@ -1,22 +1,19 @@
-// Transition redirect for the previous domain: https://pgx.dev/* → https://pgboxdb.com/*
+// The previous domain, pgx.dev: every path is answered here (route pgx.dev/*).
 //
-// Authorised for at most 90 days. REDIRECT_UNTIL (wrangler.toml) is the hard
-// end: from that instant the Worker stops redirecting and passes every request
-// through to the zone's normal handling, as if it were not deployed. Remove the
-// route after the deadline (README).
-//
-// * 301 (permanent), but with a bounded Cache-Control so browsers do not keep
-//   the redirect forever after the transition ends.
-// * The path is kept where pgboxdb.com has the same page. Any other path goes
-//   to the home page. The query string is always kept.
-// * /install is never redirected: it is a shell script for `curl … | sh`, and
-//   it is served by its own, more specific route (pgx-install Worker). It is
-//   passed through here too, in case this Worker ever sees it.
+// Until REDIRECT_UNTIL (the authorised 90-day transition):
+//   * 301 to https://pgboxdb.com, keeping the path where pgboxdb.com has the
+//     same page (else the home page) and always the query string, with a
+//     bounded Cache-Control so browsers re-check;
+//   * /install goes to the installer Worker through the INSTALLER service
+//     binding, so the shell script is never redirected to an HTML page, and no
+//     route ordering can send it anywhere else.
+// From REDIRECT_UNTIL on, or if the deadline is missing or invalid:
+//   * 410 Gone for every path, /install included. The previous website is never
+//     served again (the Worker never forwards to the origin).
 
 const TARGET = "https://pgboxdb.com";
 // Paths that exist on both sites (checked 2026-11-19).
 const SAME_PATH = new Set(["/", "/index.html", "/llms.txt", "/robots.txt"]);
-const PASS_THROUGH = new Set(["/install", "/install/"]);
 const CACHE_SECONDS = 3600;
 
 export function redirectEnd(env) {
@@ -29,13 +26,24 @@ export function target(url) {
   return TARGET + path + url.search;
 }
 
+export function gone() {
+  return new Response("410 Gone\n", {
+    status: 410,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": `public, max-age=${CACHE_SECONDS}`,
+    },
+  });
+}
+
 export default {
   async fetch(request, env, _ctx, now = Date.now()) {
     const url = new URL(request.url);
     const end = redirectEnd(env);
-    // Fail closed on a missing or invalid deadline: no redirect without an end.
-    if (end === null || now >= end || PASS_THROUGH.has(url.pathname)) {
-      return fetch(request);
+    if (end === null || now >= end) return gone();
+    if (url.pathname === "/install") {
+      if (!env.INSTALLER) return gone();
+      return env.INSTALLER.fetch(request);
     }
     return new Response(null, {
       status: 301,

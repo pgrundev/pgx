@@ -1,66 +1,86 @@
-# Transition redirect for the previous domain
+# The previous domain (pgx.dev) during and after the transition
 
-A Cloudflare Worker that answers `https://pgx.dev/*` and `http://pgx.dev/*`
-with an HTTP 301 to `https://pgboxdb.com`. It runs only for the transition
-period after the rename.
+Two Cloudflare Workers answer every request to `pgx.dev`. The domain itself
+is never transferred, released or deleted.
 
-| | |
+| Worker | Route | Source |
+|---|---|---|
+| `pgx-dev-redirect` | `pgx.dev/*` (every path) | `redirect-worker.js`, `wrangler.toml` |
+| `pgx-install` | `pgx.dev/install` | `install/` |
+
+## Timeline
+
+| | UTC |
 |---|---|
-| Worker | `pgx-dev-redirect` (account `af075c4f…`), route `pgx.dev/*` |
-| Activated | **2026-11-19 19:58:36 UTC** (version `5c43142a-18c3-4385-942a-7b98cf8632c7`) |
-| Authorised until | 90 days after activation, 2027-02-17 19:58:36 UTC |
-| Stops redirecting at | **2027-02-17 19:58:29 UTC** (`REDIRECT_UNTIL`, enforced in code) |
+| Transition activated (first 301) | **2026-11-19 19:58:36** |
+| Authorised until (activation + 90 days) | 2027-02-17 19:58:36 |
+| `REDIRECT_UNTIL`, enforced in code by both Workers | **2027-02-17 19:58:29** |
 
-Behaviour:
+## Until `REDIRECT_UNTIL`
 
-* `/`, `/index.html`, `/llms.txt` and `/robots.txt` keep their path; these
-  are the pages that exist on both sites. Every other path goes to
-  `https://pgboxdb.com/`. The query string is always kept.
-* `/install` is **not** redirected. It is the PGX installer shell script,
-  served by its own more specific route (Worker `pgx-install`), so
-  `curl -fsSL https://pgx.dev/install | sh` keeps working for existing users.
-* `Cache-Control: public, max-age=3600`, so browsers re-check hourly and
-  do not keep the 301 after the transition ends.
+* `https://pgx.dev/*` and `http://pgx.dev/*` answer 301 to `https://pgboxdb.com`.
+  * `/`, `/index.html`, `/llms.txt` and `/robots.txt` keep their path; these
+    are the pages that exist on both sites. Every other path goes to the home
+    page. The query string is always kept.
+  * `Cache-Control: public, max-age=3600`, so browsers re-check hourly and do
+    not keep the 301 after the transition.
+* `https://pgx.dev/install` serves the previous product's installer script
+  (tag `v0.1.3`). It is unchanged except for one line after the shebang that
+  defaults its version to `0.1.3`. Without that line, the script would pick
+  "the newest release", which from v0.2.0 on is a PGBoxDB release with other
+  asset names, and `curl -fsSL https://pgx.dev/install | sh` would fail. A
+  version the user sets still wins.
 * There is no `www.pgx.dev` record, so there is nothing to redirect there.
-* From `REDIRECT_UNTIL` on, or if the variable is missing or invalid, the
-  Worker passes requests through, and pgx.dev serves what it served before.
-  The domain itself is never moved, released or deleted.
 
-## The `/install` endpoint (Worker `pgx-install`)
+## From `REDIRECT_UNTIL` on
 
-`install/` holds the Worker on the more specific route `pgx.dev/install`. It
-serves the previous product's tagged installer (`v0.1.3`) unchanged, except
-for one line after the shebang that defaults its version to `0.1.3`. Without
-that line, the script installs "the newest release". From v0.2.0 on that
-is a PGBoxDB release, whose assets have other names, so
-`curl -fsSL https://pgx.dev/install | sh` would fail. A version set by the
-user still wins.
+Both Workers answer **`410 Gone`** (plain text, no branding) on every path,
+`/install` included. They do this without any redeploy, and also if the
+deadline variable is missing or invalid. The redirect Worker never forwards a
+request to the origin, so the previous website can't be served again.
+`curl -fsSL https://pgx.dev/install | sh` then fails (`curl -f` stops on the
+410, and `sh` gets an empty script).
 
-| | |
-|---|---|
-| Deployed | 2026-11-19 20:04:41 UTC, version `d1cc0c44-9283-4fd3-9fce-07c9ef118396` |
-| Previous | `44d28964-e04c-4899-927a-105f9e6202ed` (tag v0.1.0's script, unpinned) |
-| Verified | live `curl -fsSL https://pgx.dev/install \| sh` in a clean HOME installs PGX 0.1.3 |
+**Keep both Workers deployed after the deadline.** The previous site is still
+deployed as the Worker `pgx`. Only the `pgx.dev/*` route keeps it unreachable,
+so deleting `pgx-dev-redirect` would bring it back. To retire the old site for
+good, remove the `pgx` Worker's domain or route as a separate step that needs
+approval. That is not a domain transfer or deletion.
 
-This endpoint is not part of the 90-day redirect, and it stays when the
-redirect Worker is deleted. Retiring it is a separate decision. Roll back
-with `npx wrangler rollback 44d28964-e04c-4899-927a-105f9e6202ed --name pgx-install`.
+## Why the two routes can't conflict
 
-## End of the transition (no later than 2027-02-17 19:58 UTC)
+* Cloudflare uses the most specific matching route, so `pgx.dev/install` (with
+  any query string) reaches `pgx-install`. Verified live: 200,
+  `text/x-shellscript`, `x-pgx-install-version: 0.1.3`.
+* If the redirect Worker ever receives `/install` anyway, it hands the
+  request to `pgx-install` through the `INSTALLER` service binding, never to
+  the origin or to `pgboxdb.com`.
+* `/install/` and every other path go to the redirect Worker: 301 until the
+  deadline, then 410. No path reaches the old site. Verified live: `/` answers
+  301, not the old page.
+* Both Workers read the same `REDIRECT_UNTIL`, so they stop together.
+* The tests (`redirect-worker.test.js`, `install/legacy-install-worker.test.js`,
+  run in CI) fail if the redirect Worker forwards to the origin, if `/install`
+  is redirected, or if anything other than 410 is served after the deadline.
 
-The redirect ends by itself. Then remove the Worker and its route:
+## Deployments
+
+| Worker | Version | Deployed (UTC) | Note |
+|---|---|---|---|
+| `pgx-dev-redirect` | `5c43142a-18c3-4385-942a-7b98cf8632c7` | 2026-11-19 19:58:36 | first version (activation) |
+| `pgx-install` | `d1cc0c44-9283-4fd3-9fce-07c9ef118396` | 2026-11-19 20:04:41 | v0.1.3 script, version pinned |
+| `pgx-install` | `f7c5157b-6261-4250-9501-a59715f43c0e` | 2026-11-19 20:23 | + 410 after the deadline |
+| `pgx-dev-redirect` | `5d1fab37-4514-412c-98e7-0daa5c826709` | 2026-11-19 20:23:25 | + 410 after the deadline, `INSTALLER` binding |
+
+Before the transition, `pgx-install` was `44d28964-e04c-4899-927a-105f9e6202ed`
+(tag v0.1.0's script, unpinned).
+
+## Change
 
 ```sh
-npx wrangler delete pgx-dev-redirect
-curl -sSI https://pgx.dev/ | head -1          # no longer a 301
+node --test redirect-worker.test.js install/legacy-install-worker.test.js
+(cd install && npx wrangler deploy)    # the binding target first
+npx wrangler deploy
 ```
 
-## Change or roll back
-
-```sh
-node --test redirect-worker.test.js
-npx wrangler deploy                            # from this directory
-npx wrangler delete pgx-dev-redirect           # rollback: pgx.dev is as before
-```
-
-Never set `REDIRECT_UNTIL` later than 2027-02-17T19:58:36Z.
+Never set `REDIRECT_UNTIL` later than `2027-02-17T19:58:36Z` in either file.

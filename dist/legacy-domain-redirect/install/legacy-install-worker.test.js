@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import worker, { pin } from "./legacy-install-worker.js";
 
 const SCRIPT = '#!/bin/sh\nset -eu\nversion="${PGX_VERSION:-}"\n';
-const env = { INSTALL_REF: "v0.1.3", LEGACY_VERSION: "0.1.3" };
+const END = "2027-02-17T19:58:29Z";
+const env = { INSTALL_REF: "v0.1.3", LEGACY_VERSION: "0.1.3", REDIRECT_UNTIL: END };
 function stub(status = 200, body = SCRIPT) {
   const calls = [];
   globalThis.fetch = async (u) => { calls.push(String(u)); return new Response(body, { status }); };
@@ -34,7 +35,7 @@ test("refuses anything that is not a shell script", () => {
 
 test("misconfiguration fails loudly", async () => {
   stub();
-  for (const e of [{}, { INSTALL_REF: "main", LEGACY_VERSION: "0.1.3" }, { INSTALL_REF: "v0.1.3", LEGACY_VERSION: "latest" }]) {
+  for (const e of [{ REDIRECT_UNTIL: END }, { ...env, INSTALL_REF: "main" }, { ...env, LEGACY_VERSION: "latest" }]) {
     assert.equal((await worker.fetch(new Request("https://pgx.dev/install"), e)).status, 500);
   }
 });
@@ -50,4 +51,15 @@ test("only GET/HEAD on /install", async () => {
   stub();
   assert.equal((await worker.fetch(new Request("https://pgx.dev/other"), env)).status, 404);
   assert.equal((await worker.fetch(new Request("https://pgx.dev/install", { method: "POST" }), env)).status, 405);
+});
+
+test("from the deadline on, or without one: 410 Gone, upstream never fetched", async () => {
+  const calls = stub();
+  const at = Date.parse(END);
+  for (const [e, now] of [[env, at], [env, at + 86400000], [{ ...env, REDIRECT_UNTIL: undefined }, at - 1000]]) {
+    const r = await worker.fetch(new Request("https://pgx.dev/install"), e, {}, now);
+    assert.equal(r.status, 410);
+    assert.equal(await r.text(), "410 Gone\n");
+  }
+  assert.equal(calls.length, 0);
 });

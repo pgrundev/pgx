@@ -115,13 +115,22 @@ impl Tty {
         self.master.flush().unwrap();
     }
 
-    /// Wait until the screen output (after `from` bytes) contains `needle`.
+    /// Wait until `needle` appears after `from` bytes of output: either in the
+    /// bytes written since then, or on the reconstructed screen when it was not
+    /// on the screen at `from`. The second form matters because the renderer
+    /// sends only changed cells: a redraw of "appeared_later" over a cell that
+    /// already held an "r" does not resend that "r", so the byte stream alone
+    /// can miss text that is plainly on the screen.
     fn expect(&self, needle: &str, from: usize, secs: u64) {
         let deadline = Instant::now() + Duration::from_secs(secs);
+        let before = {
+            let raw = self.raw();
+            screen(&raw[..from.min(raw.len())]).contains(needle)
+        };
         loop {
             let raw = self.raw();
             let tail = strip_ansi(&String::from_utf8_lossy(&raw[from.min(raw.len())..]));
-            if tail.contains(needle) {
+            if tail.contains(needle) || (!before && screen(&raw).contains(needle)) {
                 return;
             }
             if Instant::now() > deadline {
@@ -203,6 +212,117 @@ impl Drop for Tty {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// The text of the terminal screen after `raw`, as rows joined by newlines: a
+/// minimal emulator for what the TUI emits (cursor positioning, line and screen
+/// erase, the alternate screen, printable characters; colours are ignored).
+fn screen(raw: &[u8]) -> String {
+    let s = String::from_utf8_lossy(raw);
+    let mut grid: Vec<Vec<char>> = Vec::new();
+    let (mut row, mut col) = (0usize, 0usize);
+    let put = |grid: &mut Vec<Vec<char>>, r: usize, c: usize, ch: char| {
+        if grid.len() <= r {
+            grid.resize(r + 1, Vec::new());
+        }
+        let line = &mut grid[r];
+        if line.len() <= c {
+            line.resize(c + 1, ' ');
+        }
+        line[c] = ch;
+    };
+    let mut it = s.chars().peekable();
+    while let Some(ch) = it.next() {
+        match ch {
+            '\x1b' => match it.next() {
+                Some('[') => {
+                    let mut params = String::new();
+                    let mut fin = '\0';
+                    for d in it.by_ref() {
+                        if ('@'..='~').contains(&d) {
+                            fin = d;
+                            break;
+                        }
+                        params.push(d);
+                    }
+                    let private = params.starts_with('?');
+                    let nums: Vec<usize> = params
+                        .trim_start_matches('?')
+                        .split(';')
+                        .map(|n| n.parse().unwrap_or(0))
+                        .collect();
+                    let n = |i: usize, dflt: usize| {
+                        nums.get(i).copied().filter(|v| *v > 0).unwrap_or(dflt)
+                    };
+                    match fin {
+                        'H' | 'f' => {
+                            row = n(0, 1) - 1;
+                            col = n(1, 1) - 1;
+                        }
+                        'A' => row = row.saturating_sub(n(0, 1)),
+                        'B' => row += n(0, 1),
+                        'C' => col += n(0, 1),
+                        'D' => col = col.saturating_sub(n(0, 1)),
+                        'G' => col = n(0, 1) - 1,
+                        'd' => row = n(0, 1) - 1,
+                        'J' if nums.first().copied().unwrap_or(0) >= 2 => grid.clear(),
+                        'J' => {
+                            if let Some(line) = grid.get_mut(row) {
+                                line.truncate(col);
+                            }
+                            grid.truncate(row + 1);
+                        }
+                        'K' => {
+                            if let Some(line) = grid.get_mut(row) {
+                                line.truncate(col);
+                            }
+                        }
+                        'h' | 'l' if private && params.contains("1049") => grid.clear(),
+                        _ => {}
+                    }
+                }
+                Some(']') => {
+                    while let Some(d) = it.next() {
+                        if d == '\x07' || (d == '\x1b' && it.peek() == Some(&'\\')) {
+                            if d == '\x1b' {
+                                it.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\r' => col = 0,
+            '\n' => row += 1,
+            '\x08' => col = col.saturating_sub(1),
+            c if c.is_control() => {}
+            c => {
+                put(&mut grid, row, col, c);
+                col += 1;
+            }
+        }
+    }
+    grid.iter()
+        .map(|l| l.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn screen_model_sees_text_drawn_over_unchanged_cells() {
+    // "appeared_later" drawn over "xxxxxrxxxxxxxx": the renderer skips the
+    // unchanged "r", so the byte stream holds "appea" and "ed_later" only.
+    let first = b"\x1b[?1049h\x1b[3;5Hxxxxxrxxxxxxxx";
+    let second = b"\x1b[3;5Happea\x1b[3;11Hed_later";
+    let mut all = first.to_vec();
+    all.extend_from_slice(second);
+    assert!(!strip_ansi(&String::from_utf8_lossy(second)).contains("appeared_later"));
+    assert!(screen(&all).contains("appeared_later"));
+    assert!(!screen(first).contains("appeared_later"));
+    // Erase to end of line, and a full clear.
+    assert!(!screen(b"\x1b[1;1Habcdef\x1b[1;3H\x1b[K").contains("cdef"));
+    assert!(screen(b"\x1b[1;1Habc\x1b[2Jxyz").trim() == "xyz");
 }
 
 fn strip_ansi(s: &str) -> String {

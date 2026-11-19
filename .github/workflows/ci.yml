@@ -17,7 +17,9 @@ jobs:
       - name: Worker unit tests (node:test)
         run: node --test dist/pgboxdb.com/install-worker.test.js
       - name: Legacy-domain transition redirect Worker (node:test)
-        run: node --test dist/legacy-domain-redirect/redirect-worker.test.js
+        run: |
+          node --test dist/legacy-domain-redirect/redirect-worker.test.js
+          node --test dist/legacy-domain-redirect/install/legacy-install-worker.test.js
   release-workflow:
     name: release workflow and distribution names
     runs-on: ubuntu-24.04

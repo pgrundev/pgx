@@ -26,6 +26,26 @@ Behaviour:
   Worker passes requests through, and pgx.dev serves what it served before.
   The domain itself is never moved, released or deleted.
 
+## The `/install` endpoint (Worker `pgx-install`)
+
+`install/` holds the Worker on the more specific route `pgx.dev/install`. It
+serves the previous product's tagged installer (`v0.1.3`) unchanged, except
+for one line after the shebang that defaults its version to `0.1.3`. Without
+that line, the script installs "the newest release". From v0.2.0 on that
+is a PGBoxDB release, whose assets have other names, so
+`curl -fsSL https://pgx.dev/install | sh` would fail. A version set by the
+user still wins.
+
+| | |
+|---|---|
+| Deployed | 2026-11-19 20:04:41 UTC, version `d1cc0c44-9283-4fd3-9fce-07c9ef118396` |
+| Previous | `44d28964-e04c-4899-927a-105f9e6202ed` (tag v0.1.0's script, unpinned) |
+| Verified | live `curl -fsSL https://pgx.dev/install \| sh` in a clean HOME installs PGX 0.1.3 |
+
+This endpoint is not part of the 90-day redirect, and it stays when the
+redirect Worker is deleted. Retiring it is a separate decision. Roll back
+with `npx wrangler rollback 44d28964-e04c-4899-927a-105f9e6202ed --name pgx-install`.
+
 ## End of the transition (no later than 2027-02-17 19:58 UTC)
 
 The redirect ends by itself. Then remove the Worker and its route:

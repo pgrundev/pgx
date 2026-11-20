@@ -1,4 +1,4 @@
-<h1 align="center">PGBoxDB</h1>
+<h1 align="center">PGBox</h1>
 
 <p align="center">
   Lightweight Postgres-compatible database runtime for AI agents<br>
